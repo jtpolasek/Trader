@@ -7,11 +7,12 @@ export async function GET(_request: Request, context: { params: Promise<{ addres
   try {
     const { address } = await context.params;
     const walletAddress = normalizeAddress(address);
-    const transfers = await fetchWalletTransfers(walletAddress);
+    const { transfers, warnings } = await fetchWalletTransfers(walletAddress);
     insertWalletActivity(transfers);
     return NextResponse.json({
       activity: listWalletActivity(walletAddress),
-      fetched: transfers.length
+      fetched: transfers.length,
+      warnings
     });
   } catch (error) {
     return NextResponse.json(

@@ -4,6 +4,8 @@ import type { QuotePreview, Token, TradeSide, WalletActivity } from "./types";
 import { assertUsableZeroxQuote, getZeroxPrice } from "./zerox";
 
 type AlchemyTransfer = {
+  chainId?: number;
+  chainName?: string;
   hash?: string;
   category?: string;
   asset?: string;
@@ -13,6 +15,11 @@ type AlchemyTransfer = {
   blockNum?: string;
   metadata?: { blockTimestamp?: string };
 };
+
+const ALCHEMY_ACTIVITY_CHAINS = [
+  { id: 1, name: "Ethereum", subdomain: "eth-mainnet", envPrefix: "ETHEREUM" },
+  { id: 8453, name: "Base", subdomain: "base-mainnet", envPrefix: "BASE" }
+] as const;
 
 export async function resolveTokenFromAlchemy(address: string): Promise<Token> {
   const tokenAddress = normalizeAddress(address);
@@ -171,27 +178,52 @@ export async function buildQuotePreview(input: {
   };
 }
 
-export async function fetchWalletTransfers(walletAddress: string): Promise<Omit<WalletActivity, "id">[]> {
+export async function fetchWalletTransfers(walletAddress: string): Promise<{
+  transfers: Omit<WalletActivity, "id">[];
+  warnings: string[];
+}> {
   const address = normalizeAddress(walletAddress);
   const apiKey = process.env.ALCHEMY_API_KEY;
   if (!apiKey) {
     throw new Error("ALCHEMY_API_KEY is required to fetch wallet activity.");
   }
 
-  const [outgoing, incoming] = await Promise.all([
-    fetchAlchemyTransfers({ apiKey, address, direction: "from" }),
-    fetchAlchemyTransfers({ apiKey, address, direction: "to" })
-  ]);
+  const results = await Promise.allSettled(
+    ALCHEMY_ACTIVITY_CHAINS.flatMap((chain) =>
+      (["from", "to"] as const).map((direction) =>
+        fetchAlchemyTransfers({
+          apiKey: process.env[`${chain.envPrefix}_ALCHEMY_API_KEY`] || apiKey,
+          address,
+          direction,
+          chain
+        })
+      )
+    )
+  );
+  const batches: AlchemyTransfer[][] = [];
+  const warnings = new Set<string>();
 
-  return normalizeAlchemyTransfers(address, [...outgoing, ...incoming]);
+  for (const result of results) {
+    if (result.status === "fulfilled") {
+      batches.push(result.value);
+    } else {
+      warnings.add(result.reason instanceof Error ? result.reason.message : "A wallet activity fetch failed.");
+    }
+  }
+
+  return {
+    transfers: normalizeAlchemyTransfers(address, batches.flat()),
+    warnings: Array.from(warnings)
+  };
 }
 
 async function fetchAlchemyTransfers(input: {
   apiKey: string;
   address: string;
   direction: "from" | "to";
+  chain: (typeof ALCHEMY_ACTIVITY_CHAINS)[number];
 }): Promise<AlchemyTransfer[]> {
-  const response = await fetch(`https://eth-mainnet.g.alchemy.com/v2/${input.apiKey}`, {
+  const response = await fetch(`https://${input.chain.subdomain}.g.alchemy.com/v2/${input.apiKey}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
@@ -215,7 +247,7 @@ async function fetchAlchemyTransfers(input: {
   });
 
   if (!response.ok) {
-    throw new Error(`Alchemy transfer fetch failed with ${response.status}.`);
+    throw new Error(`${input.chain.name} Alchemy transfer fetch failed with ${response.status}.`);
   }
 
   const payload = (await response.json()) as {
@@ -226,10 +258,14 @@ async function fetchAlchemyTransfers(input: {
   };
 
   if (payload.error) {
-    throw new Error(payload.error.message ?? "Alchemy returned a transfer error.");
+    throw new Error(payload.error.message ?? `${input.chain.name} Alchemy returned a transfer error.`);
   }
 
-  return payload.result?.transfers ?? [];
+  return (payload.result?.transfers ?? []).map((transfer) => ({
+    ...transfer,
+    chainId: input.chain.id,
+    chainName: input.chain.name
+  }));
 }
 
 export function normalizeAlchemyTransfers(
@@ -252,6 +288,8 @@ export function normalizeAlchemyTransfers(
     .filter((transfer) => transfer.hash)
     .map((transfer) => ({
       walletAddress: normalizedAddress,
+      chainId: transfer.chainId ?? 1,
+      chainName: transfer.chainName ?? "Ethereum",
       hash: transfer.hash ?? "",
       category: transfer.category ?? "unknown",
       asset: transfer.asset ?? "unknown",
@@ -266,6 +304,7 @@ export function normalizeAlchemyTransfers(
 
 function transferKey(transfer: AlchemyTransfer) {
   return [
+    transfer.chainId ?? 1,
     transfer.hash ?? "",
     transfer.category ?? "",
     transfer.asset ?? "",

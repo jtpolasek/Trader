@@ -112,6 +112,7 @@ describe("normalizeAlchemyTransfers", () => {
     expect(activity).toHaveLength(2);
     expect(activity.map((item) => item.hash)).toEqual(["0xout", "0xin"]);
     expect(activity.every((item) => item.walletAddress === wallet)).toBe(true);
+    expect(activity.every((item) => item.chainName === "Ethereum")).toBe(true);
   });
 
   it("dedupes identical transfers and marks grouped hashes as swap-like", () => {
@@ -144,5 +145,33 @@ describe("normalizeAlchemyTransfers", () => {
 
     expect(activity).toHaveLength(2);
     expect(activity.every((item) => item.isSwapLike)).toBe(true);
+  });
+
+  it("keeps same-hash activity distinct across chains", () => {
+    const activity = normalizeAlchemyTransfers(wallet, [
+      {
+        chainId: 1,
+        chainName: "Ethereum",
+        hash: "0xsamehash",
+        category: "erc20",
+        asset: "USDC",
+        value: 10,
+        from: wallet,
+        to: "0x0000000000000000000000000000000000000001"
+      },
+      {
+        chainId: 8453,
+        chainName: "Base",
+        hash: "0xsamehash",
+        category: "erc20",
+        asset: "USDC",
+        value: 10,
+        from: wallet,
+        to: "0x0000000000000000000000000000000000000001"
+      }
+    ]);
+
+    expect(activity).toHaveLength(2);
+    expect(activity.map((item) => item.chainName)).toEqual(["Ethereum", "Base"]);
   });
 });

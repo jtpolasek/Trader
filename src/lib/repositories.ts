@@ -223,8 +223,8 @@ export function insertQuote(input: {
 export function insertWalletActivity(items: Omit<WalletActivity, "id">[]) {
   const statement = getDb().prepare(
     `INSERT OR IGNORE INTO wallet_activity
-      (id, wallet_address, hash, category, asset, value, from_address, to_address, block_num, timestamp, is_swap_like)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      (id, wallet_address, chain_id, chain_name, hash, category, asset, value, from_address, to_address, block_num, timestamp, is_swap_like)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
   const db = getDb();
   db.exec("BEGIN");
@@ -233,6 +233,8 @@ export function insertWalletActivity(items: Omit<WalletActivity, "id">[]) {
       statement.run(
         randomUUID(),
         item.walletAddress,
+        item.chainId,
+        item.chainName,
         item.hash,
         item.category,
         item.asset,
@@ -262,6 +264,8 @@ export function listWalletActivity(walletAddress: string): WalletActivity[] {
     .all(walletAddress) as Row[]).map((row) => ({
     id: String(row.id),
     walletAddress: String(row.wallet_address),
+    chainId: Number(row.chain_id),
+    chainName: String(row.chain_name),
     hash: String(row.hash),
     category: String(row.category),
     asset: String(row.asset),

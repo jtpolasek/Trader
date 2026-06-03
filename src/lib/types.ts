@@ -75,6 +75,8 @@ export type QuotePreview = {
 export type WalletActivity = {
   id: string;
   walletAddress: string;
+  chainId: number;
+  chainName: string;
   hash: string;
   category: string;
   asset: string;

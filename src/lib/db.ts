@@ -100,6 +100,8 @@ function migrate(database: DatabaseSync) {
       to_address TEXT NOT NULL,
       block_num TEXT NOT NULL,
       timestamp TEXT NOT NULL,
+      chain_id INTEGER NOT NULL DEFAULT 1,
+      chain_name TEXT NOT NULL DEFAULT 'Ethereum',
       is_swap_like INTEGER NOT NULL DEFAULT 0,
       UNIQUE(wallet_address, hash, category, asset, value, from_address, to_address),
       FOREIGN KEY(wallet_address) REFERENCES wallets(address)
@@ -110,6 +112,9 @@ function migrate(database: DatabaseSync) {
       value TEXT NOT NULL
     );
   `);
+
+  addColumnIfMissing(database, "wallet_activity", "chain_id", "INTEGER NOT NULL DEFAULT 1");
+  addColumnIfMissing(database, "wallet_activity", "chain_name", "TEXT NOT NULL DEFAULT 'Ethereum'");
 
   const now = new Date().toISOString();
   database
@@ -126,4 +131,11 @@ function migrate(database: DatabaseSync) {
       now,
       now
     );
+}
+
+function addColumnIfMissing(database: DatabaseSync, table: string, column: string, definition: string) {
+  const columns = database.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+  if (!columns.some((item) => item.name === column)) {
+    database.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
 }

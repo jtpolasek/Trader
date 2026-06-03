@@ -14,6 +14,7 @@ A local Ethereum paper trading simulator for manually tracking wallets and testi
 
    ```text
    ALCHEMY_API_KEY=
+   BASE_ALCHEMY_API_KEY=
    ZEROX_API_KEY=
    ETHERSCAN_API_KEY=
    ```
@@ -29,7 +30,7 @@ A local Ethereum paper trading simulator for manually tracking wallets and testi
 ## What Works
 
 - Manual wallet watchlist with optional GMGN URL and notes.
-- Alchemy-backed wallet activity fetch for watched wallets.
+- Alchemy-backed Ethereum and Base wallet activity fetch for watched wallets.
 - ERC-20 metadata resolution through Alchemy.
 - 0x quote preview for buy/sell simulations.
 - Paper trade execution with gas, slippage, and 0x fee snapshot storage.
@@ -40,4 +41,5 @@ A local Ethereum paper trading simulator for manually tracking wallets and testi
 
 - This app never asks for private keys and never sends real transactions.
 - Node's built-in `node:sqlite` module is used for local SQLite storage, so Node may print an experimental SQLite warning.
-- Trade previews require `ZEROX_API_KEY`; token and wallet lookups require `ALCHEMY_API_KEY`.
+- Trade previews require `ZEROX_API_KEY`; token lookups and Ethereum wallet activity require `ALCHEMY_API_KEY`.
+- Base wallet activity uses `BASE_ALCHEMY_API_KEY` when present, otherwise it falls back to `ALCHEMY_API_KEY`.
