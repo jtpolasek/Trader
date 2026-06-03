@@ -51,6 +51,9 @@ export default function Home() {
   const [walletForm, setWalletForm] = useState({ address: "", label: "", notes: "", gmgnUrl: "" });
   const [preview, setPreview] = useState<QuotePreview | null>(null);
   const [activity, setActivity] = useState<WalletActivity[]>([]);
+  const [activityContext, setActivityContext] = useState<{ label: string; address: string; fetched: number } | null>(
+    null
+  );
   const [busy, setBusy] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -96,7 +99,8 @@ export default function Home() {
     }
   }
 
-  async function fetchActivity(address: string) {
+  async function fetchActivity(wallet: Wallet) {
+    const address = wallet.address;
     setBusy(address);
     setError("");
     setMessage("");
@@ -105,6 +109,7 @@ export default function Home() {
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error ?? "Could not fetch activity.");
       setActivity(payload.activity);
+      setActivityContext({ label: wallet.label, address, fetched: payload.fetched });
       setMessage(`Fetched ${payload.fetched} wallet transfers.`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not fetch activity.");
@@ -379,7 +384,7 @@ export default function Home() {
                     </div>
                     <button
                       className="button secondary"
-                      onClick={() => fetchActivity(wallet.address)}
+                      onClick={() => fetchActivity(wallet)}
                       disabled={busy === wallet.address}
                       title="Fetch wallet activity"
                     >
@@ -472,6 +477,11 @@ export default function Home() {
               <h2>Wallet activity</h2>
               <span className="pill">{activity.filter((item) => item.isSwapLike).length} swap-like</span>
             </div>
+            {activityContext ? (
+              <p className="subtle">
+                {activityContext.label} fetched {activityContext.fetched} ETH/ERC-20 transfers from Alchemy.
+              </p>
+            ) : null}
             <div className="list">
               {activity.slice(0, 8).map((item) => (
                 <article className="card" key={item.id}>
@@ -486,7 +496,13 @@ export default function Home() {
                   </div>
                 </article>
               ))}
-              {!activity.length ? <p className="subtle">Fetch a watched wallet to cache recent transfer activity.</p> : null}
+              {!activity.length ? (
+                <p className="subtle">
+                  {activityContext
+                    ? "No matching inbound or outbound ETH/ERC-20 transfers were returned for this wallet."
+                    : "Fetch a watched wallet to cache recent transfer activity."}
+                </p>
+              ) : null}
             </div>
           </div>
         </div>

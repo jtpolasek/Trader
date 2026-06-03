@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { TOKENS } from "./constants";
+import { normalizeAlchemyTransfers } from "./external";
 import { normalizeZeroxPriceQuote, summarizeZeroxIssues, ZEROX_PRICE_ENDPOINT } from "./zerox";
 
 describe("summarizeZeroxIssues", () => {
@@ -78,5 +79,70 @@ describe("normalizeZeroxPriceQuote", () => {
     );
 
     expect(quote.warnings).toContain("0x did not return a complete gas estimate; gas may be understated.");
+  });
+});
+
+describe("normalizeAlchemyTransfers", () => {
+  const wallet = "0x6332685fb57d440b9812cc5f625376f8bee6eba1";
+
+  it("keeps both incoming and outgoing wallet transfers", () => {
+    const activity = normalizeAlchemyTransfers(wallet, [
+      {
+        hash: "0xout",
+        category: "erc20",
+        asset: "USDC",
+        value: 12,
+        from: wallet,
+        to: "0x0000000000000000000000000000000000000001",
+        blockNum: "0x1",
+        metadata: { blockTimestamp: "2026-06-03T00:00:00.000Z" }
+      },
+      {
+        hash: "0xin",
+        category: "external",
+        asset: "ETH",
+        value: 0.25,
+        from: "0x0000000000000000000000000000000000000002",
+        to: wallet,
+        blockNum: "0x2",
+        metadata: { blockTimestamp: "2026-06-03T00:01:00.000Z" }
+      }
+    ]);
+
+    expect(activity).toHaveLength(2);
+    expect(activity.map((item) => item.hash)).toEqual(["0xout", "0xin"]);
+    expect(activity.every((item) => item.walletAddress === wallet)).toBe(true);
+  });
+
+  it("dedupes identical transfers and marks grouped hashes as swap-like", () => {
+    const activity = normalizeAlchemyTransfers(wallet, [
+      {
+        hash: "0xswap",
+        category: "erc20",
+        asset: "TOKEN",
+        value: 100,
+        from: wallet,
+        to: "0x0000000000000000000000000000000000000001"
+      },
+      {
+        hash: "0xswap",
+        category: "erc20",
+        asset: "TOKEN",
+        value: 100,
+        from: wallet,
+        to: "0x0000000000000000000000000000000000000001"
+      },
+      {
+        hash: "0xswap",
+        category: "erc20",
+        asset: "USDC",
+        value: 5,
+        from: "0x0000000000000000000000000000000000000001",
+        to: wallet
+      }
+    ]);
+
+    expect(activity).toHaveLength(2);
+    expect(activity.every((item) => item.isSwapLike)).toBe(true);
   });
 });

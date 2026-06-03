@@ -3,6 +3,17 @@ import { fromBaseUnits, normalizeAddress, toBaseUnits } from "./money";
 import type { QuotePreview, Token, TradeSide, WalletActivity } from "./types";
 import { assertUsableZeroxQuote, getZeroxPrice } from "./zerox";
 
+type AlchemyTransfer = {
+  hash?: string;
+  category?: string;
+  asset?: string;
+  value?: number;
+  from?: string;
+  to?: string;
+  blockNum?: string;
+  metadata?: { blockTimestamp?: string };
+};
+
 export async function resolveTokenFromAlchemy(address: string): Promise<Token> {
   const tokenAddress = normalizeAddress(address);
   const cachedUsdc = tokenAddress === TOKENS.USDC.address.toLowerCase();
@@ -167,7 +178,20 @@ export async function fetchWalletTransfers(walletAddress: string): Promise<Omit<
     throw new Error("ALCHEMY_API_KEY is required to fetch wallet activity.");
   }
 
-  const response = await fetch(`https://eth-mainnet.g.alchemy.com/v2/${apiKey}`, {
+  const [outgoing, incoming] = await Promise.all([
+    fetchAlchemyTransfers({ apiKey, address, direction: "from" }),
+    fetchAlchemyTransfers({ apiKey, address, direction: "to" })
+  ]);
+
+  return normalizeAlchemyTransfers(address, [...outgoing, ...incoming]);
+}
+
+async function fetchAlchemyTransfers(input: {
+  apiKey: string;
+  address: string;
+  direction: "from" | "to";
+}): Promise<AlchemyTransfer[]> {
+  const response = await fetch(`https://eth-mainnet.g.alchemy.com/v2/${input.apiKey}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
@@ -178,7 +202,7 @@ export async function fetchWalletTransfers(walletAddress: string): Promise<Omit<
         {
           fromBlock: "0x0",
           toBlock: "latest",
-          fromAddress: address,
+          ...(input.direction === "from" ? { fromAddress: input.address } : { toAddress: input.address }),
           category: ["erc20", "external"],
           withMetadata: true,
           excludeZeroValue: true,
@@ -196,16 +220,7 @@ export async function fetchWalletTransfers(walletAddress: string): Promise<Omit<
 
   const payload = (await response.json()) as {
     result?: {
-      transfers?: Array<{
-        hash?: string;
-        category?: string;
-        asset?: string;
-        value?: number;
-        from?: string;
-        to?: string;
-        blockNum?: string;
-        metadata?: { blockTimestamp?: string };
-      }>;
+      transfers?: AlchemyTransfer[];
     };
     error?: { message?: string };
   };
@@ -214,16 +229,29 @@ export async function fetchWalletTransfers(walletAddress: string): Promise<Omit<
     throw new Error(payload.error.message ?? "Alchemy returned a transfer error.");
   }
 
-  const transfers = payload.result?.transfers ?? [];
-  const byHash = new Map<string, number>();
+  return payload.result?.transfers ?? [];
+}
+
+export function normalizeAlchemyTransfers(
+  address: string,
+  transfers: AlchemyTransfer[]
+): Omit<WalletActivity, "id">[] {
+  const normalizedAddress = normalizeAddress(address);
+  const uniqueTransfers = new Map<string, AlchemyTransfer>();
   for (const transfer of transfers) {
+    if (!transfer.hash) continue;
+    uniqueTransfers.set(transferKey(transfer), transfer);
+  }
+
+  const byHash = new Map<string, number>();
+  for (const transfer of uniqueTransfers.values()) {
     if (transfer.hash) byHash.set(transfer.hash, (byHash.get(transfer.hash) ?? 0) + 1);
   }
 
-  return transfers
+  return Array.from(uniqueTransfers.values())
     .filter((transfer) => transfer.hash)
     .map((transfer) => ({
-      walletAddress: address,
+      walletAddress: normalizedAddress,
       hash: transfer.hash ?? "",
       category: transfer.category ?? "unknown",
       asset: transfer.asset ?? "unknown",
@@ -234,6 +262,17 @@ export async function fetchWalletTransfers(walletAddress: string): Promise<Omit<
       timestamp: transfer.metadata?.blockTimestamp ?? new Date().toISOString(),
       isSwapLike: (byHash.get(transfer.hash ?? "") ?? 0) > 1
     }));
+}
+
+function transferKey(transfer: AlchemyTransfer) {
+  return [
+    transfer.hash ?? "",
+    transfer.category ?? "",
+    transfer.asset ?? "",
+    transfer.value ?? "",
+    (transfer.from ?? "").toLowerCase(),
+    (transfer.to ?? "").toLowerCase()
+  ].join("|");
 }
 
 function withoutRawResponse<T extends { rawResponse: unknown }>(quote: T) {
