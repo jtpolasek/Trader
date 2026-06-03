@@ -530,7 +530,7 @@ export default function Home() {
                 {activityContext.label} fetched {activityContext.fetched} ETH/ERC-20 transfers from Ethereum and Base.
               </p>
             ) : null}
-            {activityContext?.warnings.length ? (
+            {activityContext?.warnings?.length ? (
               <div className="notice">
                 {activityContext.warnings.map((warning) => (
                   <p key={warning}>{warning}</p>
