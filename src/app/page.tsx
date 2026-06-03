@@ -527,12 +527,16 @@ export default function Home() {
                 <article className="card" key={item.id}>
                   <div className="row">
                     <div>
+                      <div className="activity-meta">
+                        <span>{formatActivityDate(item.timestamp)}</span>
+                        <span className={activityTypeClass(item)}>{activityTypeLabel(item)}</span>
+                        <span className="pill">{item.category}</span>
+                      </div>
                       <h3>
                         {item.asset} {formatNumber(item.value, 4)}
                       </h3>
                       <p className="mono subtle">{item.hash}</p>
                     </div>
-                    <span className={item.isSwapLike ? "pill good" : "pill"}>{item.category}</span>
                   </div>
                 </article>
               ))}
@@ -570,4 +574,31 @@ function Mini({ label, value }: { label: string; value: string }) {
       <p>{value}</p>
     </div>
   );
+}
+
+function formatActivityDate(timestamp: string) {
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return "Unknown date";
+  return date.toLocaleString();
+}
+
+function activityTypeLabel(item: WalletActivity) {
+  if (item.isSwapLike) return "Swap-like";
+
+  const wallet = item.walletAddress.toLowerCase();
+  const from = item.fromAddress.toLowerCase();
+  const to = item.toAddress.toLowerCase();
+
+  if (from === wallet && to === wallet) return "Self-transfer";
+  if (to === wallet) return "Incoming";
+  if (from === wallet) return "Outgoing";
+  return "Related";
+}
+
+function activityTypeClass(item: WalletActivity) {
+  const label = activityTypeLabel(item);
+  if (label === "Incoming") return "pill good";
+  if (label === "Outgoing") return "pill warn";
+  if (label === "Swap-like") return "pill good";
+  return "pill";
 }
