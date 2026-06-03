@@ -10,6 +10,7 @@ import {
   RefreshCw,
   Send,
   Target,
+  Trash2,
   WalletCards
 } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
@@ -113,6 +114,35 @@ export default function Home() {
       setMessage(`Fetched ${payload.fetched} wallet transfers.`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not fetch activity.");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function deleteWatchedWallet(wallet: Wallet) {
+    if (!window.confirm(`Delete ${wallet.label} from the watchlist? Cached activity for this wallet will also be removed.`)) {
+      return;
+    }
+
+    setBusy(`delete-${wallet.address}`);
+    setError("");
+    setMessage("");
+    try {
+      const response = await fetch("/api/wallets", {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ address: wallet.address })
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error ?? "Could not delete wallet.");
+      if (activityContext?.address === wallet.address) {
+        setActivity([]);
+        setActivityContext(null);
+      }
+      setMessage("Wallet deleted.");
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not delete wallet.");
     } finally {
       setBusy("");
     }
@@ -382,15 +412,25 @@ export default function Home() {
                       <p className="mono subtle">{wallet.address}</p>
                       {wallet.notes ? <p>{wallet.notes}</p> : null}
                     </div>
-                    <button
-                      className="button secondary"
-                      onClick={() => fetchActivity(wallet)}
-                      disabled={busy === wallet.address}
-                      title="Fetch wallet activity"
-                    >
-                      {busy === wallet.address ? <Loader2 size={18} /> : <WalletCards size={18} />}
-                      Activity
-                    </button>
+                    <div className="row compact">
+                      <button
+                        className="button secondary"
+                        onClick={() => fetchActivity(wallet)}
+                        disabled={busy === wallet.address || busy === `delete-${wallet.address}`}
+                        title="Fetch wallet activity"
+                      >
+                        {busy === wallet.address ? <Loader2 size={18} /> : <WalletCards size={18} />}
+                        Activity
+                      </button>
+                      <button
+                        className="icon-button danger"
+                        onClick={() => deleteWatchedWallet(wallet)}
+                        disabled={busy === wallet.address || busy === `delete-${wallet.address}`}
+                        title="Delete wallet"
+                      >
+                        {busy === `delete-${wallet.address}` ? <Loader2 size={18} /> : <Trash2 size={18} />}
+                      </button>
+                    </div>
                   </div>
                 </article>
               ))}

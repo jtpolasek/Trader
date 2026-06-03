@@ -59,6 +59,20 @@ export function upsertWallet(input: Omit<Wallet, "createdAt">) {
   return { ...input, createdAt };
 }
 
+export function deleteWallet(address: string) {
+  const db = getDb();
+  db.exec("BEGIN");
+  try {
+    db.prepare("DELETE FROM wallet_activity WHERE wallet_address = ?").run(address);
+    const result = db.prepare("DELETE FROM wallets WHERE address = ?").run(address);
+    db.exec("COMMIT");
+    return Number(result.changes ?? 0);
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+}
+
 export function getToken(address: string) {
   const row = getDb().prepare("SELECT * FROM tokens WHERE address = ?").get(address) as Row | undefined;
   return row ? rowToToken(row) : null;
