@@ -91,6 +91,7 @@ export type WalletActivity = {
 };
 
 export type TradeCandidateStatus = "candidate" | "decoded" | "skipped" | "copied" | "partial" | "failed";
+export type CopyAttemptStatus = "copied" | "failed";
 
 export type TradeCandidate = {
   id: string;
@@ -110,6 +111,11 @@ export type TradeCandidate = {
   reason: string;
   transferCount: number;
   sourceTimestamp: string;
+  lastCopyStatus?: CopyAttemptStatus | "";
+  lastCopyBucket?: string;
+  lastCopyReason?: string;
+  lastCopyTradeId?: string;
+  lastCopyAt?: string;
   createdAt: string;
   updatedAt: string;
 };

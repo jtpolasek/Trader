@@ -71,12 +71,14 @@ This is enough to test the workflow, but it should not be treated as reliable Pn
 - Candidate copy execution uses fresh 0x pricing, chain-specific USDC/WETH routing for Ethereum/Base, existing paper accounting, and stores source candidate details in the executed trade snapshot.
 - Candidate copy responses now include structured success/failure details for UI display.
 - Candidate cards can show copied trade details including trade ID, paper side, token quantity, notional, and fees, or a specific failure reason.
+- Candidate copy failures now include a structured bucket for clearer triage: no paper position, missing token address, no liquidity/route, insufficient cash, blocked token, unsupported pattern, metadata, already copied, or unknown.
+- Candidate copy attempts now persist separately from parser status as `last_copy_*` fields; failed copy attempts no longer overwrite a decoded/review candidate's status, while successful copies still finalize the candidate as `copied`.
 - Watched wallet creation now accepts either a raw `0x...` address or a GMGN wallet URL and extracts the address automatically.
 - Tiny token prices now use a price-specific formatter so average entry and trade-history prices do not round down to `$0.00`.
 - Open positions can now be manually marked as a total loss when liquidity is gone or 0x cannot find a usable sell route.
 - Marking a position as a total loss inserts a zero-price sell trade, realizes the remaining cost basis as a loss, closes the position, and leaves cash unchanged.
 - Sell no-route/liquidity errors now surface the same total-loss action when the failed sell maps to an open position.
-- Wallet activity now summarizes copied, decoded, review, failed, and skipped candidate counts.
+- Wallet activity now summarizes copied, decoded, review, failed, and skipped candidate parse-status counts.
 - Trade history now breaks fees into gas, slippage, and 0x fee lines instead of only showing a combined total.
 - Trade history now shows warning badges for manual total-loss closes, high gas impact, high slippage impact, and stored quote warnings.
 - Accounting is ledger-backed: an append-only `ledger_entries` table (one signed-delta row per trade) is the single writable source of truth; cash, realized PnL, fees, and positions are derived on read by summing deltas, so running totals cannot drift.
@@ -110,9 +112,7 @@ Do not rely on 0x Trade Analytics for arbitrary GMGN wallets. It only returns tr
    - Keep copy actions manual until candidate confidence is much stronger.
 
 3. Improve copy execution ergonomics.
-   - Add clearer per-candidate failure buckets: no paper position, no token address, no liquidity, insufficient cash, blocked token, unsupported pattern.
    - Consider a retry/copy-again path for failed candidates after settings change.
-   - Consider allowing copy failures to keep original candidate status plus a separate last-copy result, instead of overwriting status to `failed`.
    - Add a better "cap insufficient cash" flow with fee-aware re-quoting.
 
 4. Ledger accounting hardening and cleanup (core shipped; these are follow-ups).

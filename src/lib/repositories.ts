@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { DEFAULT_COPY_SETTINGS } from "./constants";
 import { getDb } from "./db";
-import type { CopySettings, LedgerEntry, Portfolio, Position, Token, Trade, TradeCandidate, TradeInput, TradeLedgerInput, Wallet, WalletActivity } from "./types";
+import type { CopyAttemptStatus, CopySettings, LedgerEntry, Portfolio, Position, Token, Trade, TradeCandidate, TradeInput, TradeLedgerInput, Wallet, WalletActivity } from "./types";
 import { derivePortfolioTotals, derivePositions, ledgerDeltaFromTrade } from "./ledger";
 
 type Row = Record<string, unknown>;
@@ -463,6 +463,29 @@ export function updateTradeCandidateStatus(
   return Number(result.changes ?? 0);
 }
 
+export function updateTradeCandidateCopyResult(input: {
+  id: string;
+  status: CopyAttemptStatus;
+  bucket?: string;
+  reason: string;
+  tradeId?: string;
+}) {
+  const timestamp = now();
+  const result = getDb()
+    .prepare(
+      `UPDATE trade_candidates
+       SET last_copy_status = ?,
+           last_copy_bucket = ?,
+           last_copy_reason = ?,
+           last_copy_trade_id = ?,
+           last_copy_at = ?,
+           updated_at = ?
+       WHERE id = ?`
+    )
+    .run(input.status, input.bucket ?? "", input.reason, input.tradeId ?? "", timestamp, timestamp, input.id);
+  return Number(result.changes ?? 0);
+}
+
 function rowToToken(row: Row): Token {
   return {
     address: String(row.address),
@@ -512,6 +535,11 @@ function rowToTradeCandidate(row: Row): TradeCandidate {
     reason: String(row.reason),
     transferCount: Number(row.transfer_count),
     sourceTimestamp: String(row.source_timestamp || row.updated_at),
+    lastCopyStatus: String(row.last_copy_status || "") as TradeCandidate["lastCopyStatus"],
+    lastCopyBucket: String(row.last_copy_bucket || ""),
+    lastCopyReason: String(row.last_copy_reason || ""),
+    lastCopyTradeId: String(row.last_copy_trade_id || ""),
+    lastCopyAt: String(row.last_copy_at || ""),
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at)
   };

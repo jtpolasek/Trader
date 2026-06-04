@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { applyTradeToState } from "@/lib/accounting";
-import { describeCopyError, sizeCopyTrade } from "@/lib/copy";
+import { classifyCopyError, sizeCopyTrade } from "@/lib/copy";
 import { buildQuotePreview, getNativeUsdPrice, resolveTokenFromAlchemy } from "@/lib/external";
 import {
   getCopySettings,
@@ -9,6 +9,7 @@ import {
   getToken,
   getTradeCandidate,
   recordTrade,
+  updateTradeCandidateCopyResult,
   updateTradeCandidateStatus,
   upsertToken
 } from "@/lib/repositories";
@@ -83,6 +84,12 @@ export async function POST(_request: Request, context: { params: Promise<{ id: s
     const totalFeesUsd = preview.gasUsd + preview.slippageUsd + preview.dexFeeUsd;
     const statusReason = `Copied into paper portfolio as trade ${tradeId}.`;
     updateTradeCandidateStatus(candidate.id, "copied", statusReason);
+    updateTradeCandidateCopyResult({
+      id: candidate.id,
+      status: "copied",
+      reason: statusReason,
+      tradeId
+    });
 
     return NextResponse.json({
       tradeId,
@@ -105,8 +112,11 @@ export async function POST(_request: Request, context: { params: Promise<{ id: s
       }
     });
   } catch (error) {
-    const reason = describeCopyError(error);
-    updateTradeCandidateStatus(id, "failed", reason);
-    return NextResponse.json({ error: reason, copyResult: { candidateId: id, status: "failed", reason } }, { status: 400 });
+    const { bucket, reason } = classifyCopyError(error);
+    updateTradeCandidateCopyResult({ id, status: "failed", bucket, reason });
+    return NextResponse.json(
+      { error: reason, copyResult: { candidateId: id, status: "failed", bucket, reason } },
+      { status: 400 }
+    );
   }
 }

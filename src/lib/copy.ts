@@ -3,6 +3,17 @@ import type { CopySettings, Position, TradeCandidate } from "./types";
 const CASH_ASSETS = new Set(["USDC", "USDT", "DAI"]);
 const NATIVE_ASSETS = new Set(["ETH", "WETH"]);
 
+export type CopyFailureBucket =
+  | "already-copied"
+  | "blocked-token"
+  | "insufficient-cash"
+  | "missing-position"
+  | "missing-token-address"
+  | "no-liquidity"
+  | "token-metadata"
+  | "unsupported-pattern"
+  | "unknown";
+
 export function copyTokenAddress(candidate: TradeCandidate) {
   if (candidate.side === "buy") return candidate.tokenOutAddress;
   if (candidate.side === "sell") return candidate.tokenInAddress;
@@ -94,26 +105,42 @@ export function sizeCopyTrade(input: {
 }
 
 export function describeCopyError(error: unknown) {
+  return classifyCopyError(error).reason;
+}
+
+export function classifyCopyError(error: unknown): { bucket: CopyFailureBucket; reason: string } {
   const message = error instanceof Error ? error.message : "Could not copy candidate.";
   const lower = message.toLowerCase();
 
+  if (lower.includes("already been copied")) {
+    return { bucket: "already-copied", reason: "This candidate has already been copied." };
+  }
+  if (lower.includes("no token contract address")) {
+    return { bucket: "missing-token-address", reason: "This candidate has no token contract address to copy." };
+  }
+  if (lower.includes("allowlist") || lower.includes("blocklist")) {
+    return { bucket: "blocked-token", reason: message };
+  }
   if (lower.includes("liquidity") || lower.includes("route")) {
-    return "No usable 0x liquidity or route was found for this copied trade size.";
+    return { bucket: "no-liquidity", reason: "No usable 0x liquidity or route was found for this copied trade size." };
   }
   if (lower.includes("token metadata")) {
-    return "Token metadata could not be resolved for this candidate.";
+    return { bucket: "token-metadata", reason: "Token metadata could not be resolved for this candidate." };
   }
   if (lower.includes("paper cash") || lower.includes("insufficient cash")) {
-    return message;
+    return { bucket: "insufficient-cash", reason: message };
   }
   if (lower.includes("no matching position")) {
-    return "This sell candidate cannot be copied because the paper portfolio has no matching position.";
+    return {
+      bucket: "missing-position",
+      reason: "This sell candidate cannot be copied because the paper portfolio has no matching position."
+    };
   }
-  if (lower.includes("already been copied")) {
-    return "This candidate has already been copied.";
+  if (lower.includes("only buy or sell") || lower.includes("positive copy size") || lower.includes("positive sell quantity")) {
+    return { bucket: "unsupported-pattern", reason: message };
   }
 
-  return message;
+  return { bucket: "unknown", reason: message };
 }
 
 function normalizeAsset(asset: string) {

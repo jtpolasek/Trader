@@ -83,6 +83,7 @@ type QuoteDebugSnapshot = {
 type CopyResult = {
   candidateId: string;
   status: "copied" | "failed";
+  bucket?: string;
   reason: string;
   sourceHash?: string;
   chainName?: string;
@@ -337,10 +338,12 @@ export default function Home() {
         const failedResult = (payload.copyResult as CopyResult | undefined) ?? {
           candidateId: candidate.id,
           status: "failed",
+          bucket: "unknown",
           reason: payload.error ?? "Could not copy candidate."
         };
         setCopyResults((current) => ({ ...current, [candidate.id]: failedResult }));
-        throw new Error(failedResult.reason);
+        setError(failedResult.reason);
+        return;
       }
       const result = payload.copyResult as CopyResult | undefined;
       setCandidates((current) =>
@@ -357,10 +360,7 @@ export default function Home() {
       await refresh();
     } catch (err) {
       const reason = err instanceof Error ? err.message : "Could not copy candidate.";
-      const failedResult: CopyResult = { candidateId: candidate.id, status: "failed", reason };
-      setCandidates((current) =>
-        current.map((item) => (item.id === candidate.id ? { ...item, status: "failed", reason } : item))
-      );
+      const failedResult: CopyResult = { candidateId: candidate.id, status: "failed", bucket: "unknown", reason };
       setCopyResults((current) => ({ ...current, [candidate.id]: failedResult }));
       setError(reason);
     } finally {
@@ -940,7 +940,9 @@ export default function Home() {
                       <Mini label="Transfers" value={String(candidate.transferCount)} />
                       <Mini label="Side" value={candidate.side} />
                     </div>
-                    {copyResults[candidate.id] ? <CopyResultPanel result={copyResults[candidate.id]} /> : null}
+                    {copyResults[candidate.id] || candidateLastCopyResult(candidate) ? (
+                      <CopyResultPanel result={(copyResults[candidate.id] ?? candidateLastCopyResult(candidate)) as CopyResult} />
+                    ) : null}
                   </article>
                 ))}
               </div>
@@ -1047,6 +1049,9 @@ function CopyResultPanel({ result }: { result: CopyResult }) {
           <h3>{result.status === "copied" ? "Copied trade" : "Copy failed"}</h3>
           <p className="subtle">{result.reason}</p>
         </div>
+        {result.status === "failed" && result.bucket ? (
+          <span className="pill bad">{copyFailureBucketLabel(result.bucket)}</span>
+        ) : null}
         {result.tradeId ? <span className="pill good">{shortId(result.tradeId)}</span> : null}
       </div>
       {result.status === "copied" ? (
@@ -1066,6 +1071,32 @@ function CopyResultPanel({ result }: { result: CopyResult }) {
       ) : null}
     </div>
   );
+}
+
+function copyFailureBucketLabel(bucket: string) {
+  const labels: Record<string, string> = {
+    "already-copied": "Already copied",
+    "blocked-token": "Blocked token",
+    "insufficient-cash": "Cash",
+    "missing-position": "No position",
+    "missing-token-address": "No address",
+    "no-liquidity": "No liquidity",
+    "token-metadata": "Metadata",
+    "unsupported-pattern": "Unsupported",
+    unknown: "Unknown"
+  };
+  return labels[bucket] ?? "Unknown";
+}
+
+function candidateLastCopyResult(candidate: TradeCandidate): CopyResult | null {
+  if (candidate.lastCopyStatus !== "copied" && candidate.lastCopyStatus !== "failed") return null;
+  return {
+    candidateId: candidate.id,
+    status: candidate.lastCopyStatus,
+    bucket: candidate.lastCopyBucket || undefined,
+    reason: candidate.lastCopyReason || (candidate.lastCopyStatus === "copied" ? "Copied into the paper portfolio." : "Copy failed."),
+    tradeId: candidate.lastCopyTradeId || undefined
+  };
 }
 
 function settingsToForm(settings: CopySettings | typeof DEFAULT_COPY_SETTINGS): CopySettingsForm {

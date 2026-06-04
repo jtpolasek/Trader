@@ -148,6 +148,11 @@ function migrate(database: DatabaseSync) {
       reason TEXT NOT NULL,
       transfer_count INTEGER NOT NULL,
       source_timestamp TEXT NOT NULL DEFAULT '',
+      last_copy_status TEXT NOT NULL DEFAULT '',
+      last_copy_bucket TEXT NOT NULL DEFAULT '',
+      last_copy_reason TEXT NOT NULL DEFAULT '',
+      last_copy_trade_id TEXT NOT NULL DEFAULT '',
+      last_copy_at TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       UNIQUE(wallet_address, chain_id, hash),
@@ -167,6 +172,11 @@ function migrate(database: DatabaseSync) {
   addColumnIfMissing(database, "trade_candidates", "token_in_address", "TEXT NOT NULL DEFAULT ''");
   addColumnIfMissing(database, "trade_candidates", "token_out_address", "TEXT NOT NULL DEFAULT ''");
   addColumnIfMissing(database, "trade_candidates", "source_timestamp", "TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing(database, "trade_candidates", "last_copy_status", "TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing(database, "trade_candidates", "last_copy_bucket", "TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing(database, "trade_candidates", "last_copy_reason", "TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing(database, "trade_candidates", "last_copy_trade_id", "TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing(database, "trade_candidates", "last_copy_at", "TEXT NOT NULL DEFAULT ''");
   ensureUniqueLedgerTradeIndex(database);
 
   const now = new Date().toISOString();

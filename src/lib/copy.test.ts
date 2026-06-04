@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_COPY_SETTINGS } from "./constants";
-import { describeCopyError, estimateSourceNotionalUsd, sizeCopyTrade } from "./copy";
+import { classifyCopyError, describeCopyError, estimateSourceNotionalUsd, sizeCopyTrade } from "./copy";
 import type { CopySettings, Position, TradeCandidate } from "./types";
 
 const settings: CopySettings = { ...DEFAULT_COPY_SETTINGS };
@@ -57,6 +57,21 @@ describe("describeCopyError", () => {
     expect(describeCopyError(new Error("This sell candidate cannot be copied because the paper portfolio has no matching position."))).toBe(
       "This sell candidate cannot be copied because the paper portfolio has no matching position."
     );
+  });
+});
+
+describe("classifyCopyError", () => {
+  it.each([
+    ["This candidate has no token contract address to copy.", "missing-token-address"],
+    ["This token is not on the copy allowlist.", "blocked-token"],
+    ["This token is on the copy blocklist.", "blocked-token"],
+    ["No usable 0x liquidity/route for this buy.", "no-liquidity"],
+    ["Insufficient paper cash for this copy after fees.", "insufficient-cash"],
+    ["This sell candidate cannot be copied because the paper portfolio has no matching position.", "missing-position"],
+    ["Only buy or sell candidates can be copied.", "unsupported-pattern"],
+    ["Candidate has already been copied.", "already-copied"]
+  ])("classifies %s as %s", (message, bucket) => {
+    expect(classifyCopyError(new Error(message)).bucket).toBe(bucket);
   });
 });
 
