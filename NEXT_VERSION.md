@@ -47,7 +47,8 @@ This is enough to test the workflow, but it should not be treated as reliable Pn
 - Candidate status counts currently summarize the in-memory wallet activity view, not a global/multi-wallet aggregate dashboard.
 - 0x quote warnings are stored inside the normalized quote snapshot; use those snapshots before changing warning logic.
 - Be careful with `next-env.d.ts` churn after builds. Do not revert user work, but avoid committing unrelated generated noise.
-- `tsconfig.tsbuildinfo` is a machine-local TypeScript incremental-build cache and is left untracked on purpose. Add it to `.gitignore` so it stops showing up as an untracked file and never gets committed.
+- `tsconfig.tsbuildinfo` is a machine-local TypeScript incremental-build cache and is ignored on purpose.
+- Ledger backfill is one-shot: it is skipped whenever `ledger_entries` is non-empty. If `GET /api/ledger/verify` ever reports drift after a bad partial state, the recovery path is to inspect/export the DB, empty `ledger_entries`, restart to re-run backfill, then verify again before continuing.
 
 ## Completed Foundation
 
@@ -61,6 +62,8 @@ This is enough to test the workflow, but it should not be treated as reliable Pn
 - Trade candidates currently track status, confidence, side, token in/out assets and amounts, transfer count, and review/skip reason.
 - Wallet activity now preserves token contract addresses and raw Alchemy transfer payloads for later reprocessing/debugging.
 - Trade candidates now carry token in/out contract addresses and downgrade confidence when the likely copied token has no address.
+- Candidate parsing now scores every watched-wallet outbound/inbound transfer pair and prefers cash/native-to-token buy shapes or token-to-cash/native sell shapes, instead of blindly choosing the largest raw transfer in each direction.
+- Native ETH source trades, Base token buys, and noisy multi-transfer sell/buy examples are covered by parser tests; ambiguous multi-transfer candidates remain manual-review instead of high-confidence decoded.
 - Wallet activity and trade candidates now show local-time timestamps, and candidates sort by source transaction time newest first.
 - Copy settings now persist in SQLite and can be edited from the dashboard.
 - Copy settings currently include fixed-dollar mode, percent-of-source mode, max trade cap, slippage cap, gas buffer, insufficient-cash behavior, token allowlist, and token blocklist.
@@ -79,8 +82,12 @@ This is enough to test the workflow, but it should not be treated as reliable Pn
 - Accounting is ledger-backed: an append-only `ledger_entries` table (one signed-delta row per trade) is the single writable source of truth; cash, realized PnL, fees, and positions are derived on read by summing deltas, so running totals cannot drift.
 - A single pure `ledgerDeltaFromTrade` function feeds the write path, the backfill migration, and the verify cross-check identically — there is no second copy of the delta math.
 - Trade + ledger writes are atomic: all three write routes (manual execute, candidate copy, manual total-loss) persist through the transactional `recordTrade`, so a mid-write failure leaves no partial state.
+- Ledger entries now enforce one row per trade via `UNIQUE(trade_id)` for new DBs and a guarded unique-index migration for existing DBs that do not already contain duplicate entries.
+- `insertTrade` is no longer exported from `repositories.ts`; external callers must use transactional `recordTrade`.
+- `recordTrade` has a real SQLite integration test proving rollback when the ledger insert fails.
 - Existing trades are backfilled into the ledger once on first migration (idempotent via a row-count guard); total-loss closes backfill correctly as zero-price sells with no special case.
 - `GET /api/ledger/verify` re-derives the expected delta per trade and reports mismatches/missing/orphan entries; the dashboard shows a compact green/red "Ledger ✓ verified" badge.
+- Dashboard portfolio and ledger status refreshes now check `response.ok` before trusting JSON payloads.
 
 Do not rely on 0x Trade Analytics for arbitrary GMGN wallets. It only returns trades associated with our own 0x API key/app, so it is useful for our app analytics later, not for discovering or replaying random wallet trades.
 
@@ -95,8 +102,8 @@ Do not rely on 0x Trade Analytics for arbitrary GMGN wallets. It only returns tr
    - Add stale-quote warnings if preview and execution become separate enough that quotes can sit for a while.
 
 2. Improve wallet activity parsing into candidate swaps.
-   - Tighten token direction inference relative to the watched wallet with real wallet examples.
-   - Improve likely buy/sell detection from paired inbound/outbound transfers.
+   - Continue tightening token direction inference with more real wallet examples and stored raw payloads.
+   - Keep improving likely buy/sell detection for more complex paired inbound/outbound transfers.
    - Consider ETH/USDC value changes when classifying swaps.
    - Use stored raw transfer payloads to refine parser behavior without always refetching.
    - Add more live-wallet examples to harden copy sizing around native ETH source trades, Base trades, and sell candidates.
@@ -109,12 +116,7 @@ Do not rely on 0x Trade Analytics for arbitrary GMGN wallets. It only returns tr
    - Add a better "cap insufficient cash" flow with fee-aware re-quoting.
 
 4. Ledger accounting hardening and cleanup (core shipped; these are follow-ups).
-   - Add a `UNIQUE(trade_id)` constraint to `ledger_entries`. The write path already guarantees one entry per trade, but the DB does not enforce it; a double-`recordTrade` could silently duplicate an entry and skew derived totals. Cheap defense-in-depth. Note: `CREATE TABLE IF NOT EXISTS` will not retrofit an existing table, so this needs a guarded migration (or a clean rebuild of the disposable `data/paper-trader.db`).
-   - Un-export `insertTrade` from `repositories.ts` so callers must go through the transactional `recordTrade`. It is currently exported but unused by routes; keeping it public is a footgun that allows an unwrapped, ledger-less trade write.
-   - Add an integration test for the `recordTrade` transaction against a real (temp) SQLite DB — the atomicity/rollback path is the one place correctness actually depends on the DB and is currently only exercised by manual smoke. The pure delta/aggregation/verify logic is already unit-tested.
    - Retire the vestigial state now that nothing reads it: the `positions` table and the `portfolios.cash_usd` / `realized_pnl_usd` / `fees_paid_usd` running-total columns are written/seeded but never read. Drop them (or comment them as deprecated) so a future query can't accidentally read stale values. Keep `portfolios.starting_cash_usd`, which is still the ledger's baseline.
-   - Document the backfill recovery path: backfill is skipped whenever `ledger_entries` is non-empty (row-count guard), so re-deriving after a bad partial state requires emptying the table first. `verify` is the drift alarm that signals when this is needed.
-   - Harden client status fetches: `refreshLedgerStatus` (and the existing `refresh`) call `.json()` without checking `response.ok`, so a non-2xx error body could set a misleading badge state. Check `response.ok` first.
 
 5. Improve dashboard trust signals.
    - Continue refining fee breakdown details as more execution costs are modeled.

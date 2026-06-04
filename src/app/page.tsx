@@ -137,13 +137,16 @@ export default function Home() {
 
   const refresh = async () => {
     const response = await fetch("/api/portfolio", { cache: "no-store" });
-    const payload = (await response.json()) as PortfolioPayload;
+    const payload = await readJsonResponse<PortfolioPayload>(response, "Could not load portfolio.");
     setData(payload);
   };
 
   const refreshLedgerStatus = async () => {
     const response = await fetch("/api/ledger/verify", { cache: "no-store" });
-    const payload = (await response.json()) as { ok: boolean; mismatches: unknown[] };
+    const payload = await readJsonResponse<{ ok: boolean; mismatches: unknown[] }>(
+      response,
+      "Could not verify ledger."
+    );
     setLedgerOk({ ok: payload.ok, count: payload.mismatches.length });
   };
 
@@ -1341,4 +1344,13 @@ function explorerTxUrl(chainId: number, hash: string) {
   if (chainId === 1) return `https://etherscan.io/tx/${hash}`;
   if (chainId === 8453) return `https://basescan.org/tx/${hash}`;
   return "";
+}
+
+async function readJsonResponse<T>(response: Response, fallbackMessage: string): Promise<T> {
+  const payload = (await response.json().catch(() => null)) as { error?: unknown } | null;
+  if (!response.ok) {
+    throw new Error(typeof payload?.error === "string" ? payload.error : fallbackMessage);
+  }
+  if (!payload) throw new Error(fallbackMessage);
+  return payload as T;
 }

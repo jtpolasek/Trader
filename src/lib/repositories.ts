@@ -166,7 +166,7 @@ export function getPosition(tokenAddress: string) {
 }
 
 
-export function insertTrade(input: TradeInput) {
+function insertTrade(input: TradeInput) {
   const id = randomUUID();
   const createdAt = now();
   getDb()

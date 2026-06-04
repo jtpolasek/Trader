@@ -3,6 +3,12 @@ import type { TradeCandidate, TradeSide, WalletActivity } from "./types";
 const STABLE_OR_NATIVE_ASSETS = new Set(["ETH", "WETH", "USDC", "USDT", "DAI"]);
 
 type CandidateDraft = Omit<TradeCandidate, "id" | "createdAt" | "updatedAt">;
+type TransferPair = {
+  tokenIn: WalletActivity;
+  tokenOut: WalletActivity;
+  side: TradeSide | "unknown";
+  score: number;
+};
 
 export function deriveTradeCandidates(activity: WalletActivity[]): CandidateDraft[] {
   const groups = new Map<string, WalletActivity[]>();
@@ -24,11 +30,13 @@ function toCandidate(items: WalletActivity[]): CandidateDraft {
   const outbound = items.filter(
     (item) => item.fromAddress.toLowerCase() === wallet && item.toAddress.toLowerCase() !== wallet
   );
-  const tokenIn = largestTransfer(outbound);
-  const tokenOut = largestTransfer(inbound);
+  const selectedPair = selectBestPair(outbound, inbound);
+  const tokenIn = selectedPair?.tokenIn ?? largestTransfer(outbound);
+  const tokenOut = selectedPair?.tokenOut ?? largestTransfer(inbound);
   const hasBothDirections = Boolean(tokenIn && tokenOut);
-  const isAmbiguous = inbound.length > 1 || outbound.length > 1;
-  const side = inferSide(tokenIn?.asset, tokenOut?.asset);
+  const viablePairCount = countViablePairs(outbound, inbound);
+  const isAmbiguous = inbound.length > 1 || outbound.length > 1 || viablePairCount > 1;
+  const side = selectedPair?.side ?? inferSide(tokenIn?.asset, tokenOut?.asset);
   const tokenToCopy = side === "buy" ? tokenOut : side === "sell" ? tokenIn : null;
   const missingCopyTokenAddress = Boolean(tokenToCopy && !tokenToCopy.contractAddress);
   const sourceTimestamp = newestTimestamp(items);
@@ -97,8 +105,8 @@ function toCandidate(items: WalletActivity[]): CandidateDraft {
     reason: missingCopyTokenAddress
       ? "The likely traded token has no contract address in the transfer payload; review before copying."
       : isAmbiguous
-      ? "Multiple inbound or outbound transfers were found; review before copying."
-      : "Paired wallet transfers indicate a likely swap.",
+      ? describeAmbiguousPair(side, tokenIn.asset, tokenOut.asset)
+      : describeDecodedPair(side, tokenIn.asset, tokenOut.asset),
     transferCount: items.length,
     sourceTimestamp
   };
@@ -106,6 +114,47 @@ function toCandidate(items: WalletActivity[]): CandidateDraft {
 
 function largestTransfer(items: WalletActivity[]) {
   return [...items].sort((a, b) => b.value - a.value)[0] ?? null;
+}
+
+function selectBestPair(outbound: WalletActivity[], inbound: WalletActivity[]): TransferPair | null {
+  const pairs = outbound.flatMap((tokenIn) =>
+    inbound.map((tokenOut) => {
+      const side = inferSide(tokenIn.asset, tokenOut.asset);
+      return {
+        tokenIn,
+        tokenOut,
+        side,
+        score: scorePair(tokenIn, tokenOut, side)
+      };
+    })
+  );
+  const viable = pairs.filter((pair) => pair.score > 0).sort((a, b) => b.score - a.score);
+  return viable[0] ?? null;
+}
+
+function countViablePairs(outbound: WalletActivity[], inbound: WalletActivity[]) {
+  return outbound.reduce(
+    (count, tokenIn) =>
+      count +
+      inbound.filter((tokenOut) => scorePair(tokenIn, tokenOut, inferSide(tokenIn.asset, tokenOut.asset)) > 0).length,
+    0
+  );
+}
+
+function scorePair(tokenIn: WalletActivity, tokenOut: WalletActivity, side: TradeSide | "unknown") {
+  if (side === "unknown") return 0;
+
+  const copyToken = side === "buy" ? tokenOut : tokenIn;
+  const cashToken = side === "buy" ? tokenIn : tokenOut;
+  let score = 100;
+
+  if (copyToken.contractAddress) score += 20;
+  if (!hasMissingTokenDetails(copyToken)) score += 10;
+  if (isStableAsset(cashToken.asset)) score += 8;
+  if (isNativeAsset(cashToken.asset)) score += 6;
+  if (tokenIn.isSwapLike || tokenOut.isSwapLike) score += 4;
+
+  return score;
 }
 
 function inferSide(tokenIn?: string, tokenOut?: string): TradeSide | "unknown" {
@@ -125,6 +174,14 @@ function normalizeAsset(asset?: string) {
   return (asset ?? "").trim().toUpperCase();
 }
 
+function isStableAsset(asset?: string) {
+  return ["USDC", "USDT", "DAI"].includes(normalizeAsset(asset));
+}
+
+function isNativeAsset(asset?: string) {
+  return ["ETH", "WETH"].includes(normalizeAsset(asset));
+}
+
 function hasMissingTokenDetails(item: WalletActivity | null) {
   if (!item) return true;
   if (item.category === "external") return false;
@@ -137,4 +194,26 @@ function newestTimestamp(items: WalletActivity[]) {
     .filter((timestamp) => Number.isFinite(Date.parse(timestamp)))
     .sort((a, b) => Date.parse(b) - Date.parse(a));
   return timestamps[0] ?? new Date().toISOString();
+}
+
+function describeDecodedPair(side: TradeSide, tokenInAsset: string, tokenOutAsset: string) {
+  if (side === "buy") {
+    return `Paired wallet transfers indicate a likely buy using ${tokenInAsset || "cash/native asset"} for ${
+      tokenOutAsset || "the received token"
+    }.`;
+  }
+  return `Paired wallet transfers indicate a likely sell of ${tokenInAsset || "the sent token"} into ${
+    tokenOutAsset || "cash/native asset"
+  }.`;
+}
+
+function describeAmbiguousPair(side: TradeSide, tokenInAsset: string, tokenOutAsset: string) {
+  if (side === "buy") {
+    return `Multiple inbound or outbound transfers were found; selected the likely buy using ${
+      tokenInAsset || "cash/native asset"
+    } for ${tokenOutAsset || "the received token"}. Review before copying.`;
+  }
+  return `Multiple inbound or outbound transfers were found; selected the likely sell of ${
+    tokenInAsset || "the sent token"
+  } into ${tokenOutAsset || "cash/native asset"}. Review before copying.`;
 }

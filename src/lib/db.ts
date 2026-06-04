@@ -87,6 +87,7 @@ function migrate(database: DatabaseSync) {
       realized_pnl_delta REAL NOT NULL,
       fee_delta REAL NOT NULL,
       created_at TEXT NOT NULL,
+      UNIQUE(trade_id),
       FOREIGN KEY(trade_id) REFERENCES trades(id),
       FOREIGN KEY(token_address) REFERENCES tokens(address)
     );
@@ -166,6 +167,7 @@ function migrate(database: DatabaseSync) {
   addColumnIfMissing(database, "trade_candidates", "token_in_address", "TEXT NOT NULL DEFAULT ''");
   addColumnIfMissing(database, "trade_candidates", "token_out_address", "TEXT NOT NULL DEFAULT ''");
   addColumnIfMissing(database, "trade_candidates", "source_timestamp", "TEXT NOT NULL DEFAULT ''");
+  ensureUniqueLedgerTradeIndex(database);
 
   const now = new Date().toISOString();
   database
@@ -191,6 +193,27 @@ function addColumnIfMissing(database: DatabaseSync, table: string, column: strin
   if (!columns.some((item) => item.name === column)) {
     database.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
   }
+}
+
+function ensureUniqueLedgerTradeIndex(database: DatabaseSync) {
+  const indexes = database.prepare("PRAGMA index_list(ledger_entries)").all() as Array<{ name: string; unique: number }>;
+  if (indexes.some((index) => index.name === "idx_ledger_entries_trade_unique" && index.unique === 1)) {
+    return;
+  }
+
+  const duplicates = database
+    .prepare(
+      `SELECT trade_id
+       FROM ledger_entries
+       GROUP BY trade_id
+       HAVING COUNT(*) > 1
+       LIMIT 1`
+    )
+    .get();
+
+  if (duplicates) return;
+
+  database.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_ledger_entries_trade_unique ON ledger_entries(trade_id)");
 }
 
 function backfillLedger(database: DatabaseSync) {

@@ -91,6 +91,109 @@ describe("deriveTradeCandidates", () => {
     expect(candidates[0].reason).toContain("Multiple inbound or outbound transfers");
   });
 
+  it("selects the cash/native outbound leg for a buy when another outbound token is larger", () => {
+    const candidates = deriveTradeCandidates([
+      activity({
+        category: "external",
+        asset: "ETH",
+        contractAddress: "",
+        value: 0.12,
+        fromAddress: wallet,
+        toAddress: "0xrouter"
+      }),
+      activity({
+        asset: "DUST",
+        contractAddress: "0x0000000000000000000000000000000000003000",
+        value: 50_000,
+        fromAddress: wallet,
+        toAddress: "0xrouter"
+      }),
+      activity({
+        asset: "PEPE",
+        contractAddress: "0x0000000000000000000000000000000000001000",
+        value: 1000,
+        fromAddress: "0xrouter",
+        toAddress: wallet
+      })
+    ]);
+
+    expect(candidates[0]).toMatchObject({
+      status: "candidate",
+      confidence: 0.72,
+      side: "buy",
+      tokenInAsset: "ETH",
+      tokenOutAsset: "PEPE",
+      tokenOutAddress: "0x0000000000000000000000000000000000001000"
+    });
+    expect(candidates[0].reason).toContain("selected the likely buy using ETH");
+  });
+
+  it("selects the token outbound leg for a sell when native value also leaves the wallet", () => {
+    const candidates = deriveTradeCandidates([
+      activity({
+        asset: "PEPE",
+        contractAddress: "0x0000000000000000000000000000000000001000",
+        value: 1000,
+        fromAddress: wallet,
+        toAddress: "0xrouter"
+      }),
+      activity({
+        category: "external",
+        asset: "ETH",
+        contractAddress: "",
+        value: 0.01,
+        fromAddress: wallet,
+        toAddress: "0xrouter"
+      }),
+      activity({ asset: "USDC", value: 45, fromAddress: "0xrouter", toAddress: wallet })
+    ]);
+
+    expect(candidates[0]).toMatchObject({
+      status: "candidate",
+      confidence: 0.72,
+      side: "sell",
+      tokenInAsset: "PEPE",
+      tokenInAddress: "0x0000000000000000000000000000000000001000",
+      tokenOutAsset: "USDC"
+    });
+    expect(candidates[0].reason).toContain("selected the likely sell of PEPE");
+  });
+
+  it("decodes a Base native buy from ETH out and token in", () => {
+    const candidates = deriveTradeCandidates([
+      activity({
+        chainId: 8453,
+        chainName: "Base",
+        category: "external",
+        asset: "ETH",
+        contractAddress: "",
+        value: 0.05,
+        fromAddress: wallet,
+        toAddress: "0xrouter"
+      }),
+      activity({
+        chainId: 8453,
+        chainName: "Base",
+        asset: "BRETT",
+        contractAddress: "0x0000000000000000000000000000000000002000",
+        value: 250,
+        fromAddress: "0xrouter",
+        toAddress: wallet
+      })
+    ]);
+
+    expect(candidates[0]).toMatchObject({
+      status: "decoded",
+      confidence: 0.9,
+      chainName: "Base",
+      side: "buy",
+      tokenInAsset: "ETH",
+      tokenOutAsset: "BRETT",
+      tokenOutAddress: "0x0000000000000000000000000000000000002000"
+    });
+    expect(candidates[0].reason).toContain("likely buy using ETH");
+  });
+
   it("skips transactions without paired transfer directions", () => {
     const candidates = deriveTradeCandidates([
       activity({ asset: "USDC", value: 50, fromAddress: wallet, toAddress: "0xrouter" })
