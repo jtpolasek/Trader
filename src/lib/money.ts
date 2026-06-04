@@ -6,6 +6,24 @@ export function formatUsd(value: number) {
   }).format(Number.isFinite(value) ? value : 0);
 }
 
+export function formatUsdPrice(value: number) {
+  const safeValue = Number.isFinite(value) ? value : 0;
+  if (safeValue === 0) return "$0.00";
+
+  const abs = Math.abs(safeValue);
+  if (abs >= 1) return formatUsd(safeValue);
+  if (abs >= 0.0001) {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
+      minimumFractionDigits: 4,
+      maximumFractionDigits: 6
+    }).format(safeValue);
+  }
+
+  return `$${safeValue.toPrecision(4)}`;
+}
+
 export function formatNumber(value: number, digits = 4) {
   return new Intl.NumberFormat("en-US", {
     maximumFractionDigits: digits
@@ -36,4 +54,15 @@ export function normalizeAddress(address: string) {
     throw new Error("Enter a valid Ethereum address.");
   }
   return trimmed.toLowerCase();
+}
+
+export function normalizeAddressInput(input: string) {
+  const trimmed = input.trim();
+  const directAddress = /^0x[a-fA-F0-9]{40}$/.exec(trimmed);
+  if (directAddress) return directAddress[0].toLowerCase();
+
+  const embeddedAddress = /0x[a-fA-F0-9]{40}/.exec(trimmed);
+  if (embeddedAddress) return embeddedAddress[0].toLowerCase();
+
+  throw new Error("Enter a valid Ethereum address or GMGN wallet URL.");
 }

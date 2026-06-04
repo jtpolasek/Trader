@@ -1,4 +1,5 @@
 export const ETH_CHAIN_ID = 1;
+export const BASE_CHAIN_ID = 8453;
 
 export const TOKENS = {
   ETH: {
@@ -18,6 +19,33 @@ export const TOKENS = {
   }
 } as const;
 
+export const CHAIN_TOKENS = {
+  [ETH_CHAIN_ID]: {
+    name: "Ethereum",
+    alchemySubdomain: "eth-mainnet",
+    weth: TOKENS.WETH,
+    usdc: TOKENS.USDC
+  },
+  [BASE_CHAIN_ID]: {
+    name: "Base",
+    alchemySubdomain: "base-mainnet",
+    weth: {
+      address: "0x4200000000000000000000000000000000000006",
+      symbol: "WETH",
+      decimals: 18
+    },
+    usdc: {
+      address: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+      symbol: "USDC",
+      decimals: 6
+    }
+  }
+} as const;
+
+export function getChainTokens(chainId = ETH_CHAIN_ID) {
+  return CHAIN_TOKENS[chainId as keyof typeof CHAIN_TOKENS] ?? CHAIN_TOKENS[ETH_CHAIN_ID];
+}
+
 export const DEFAULT_PORTFOLIO = {
   id: "default",
   name: "Main Paper Account",
@@ -26,3 +54,15 @@ export const DEFAULT_PORTFOLIO = {
 
 export const DEFAULT_SLIPPAGE_BPS = 100;
 export const DEFAULT_GAS_BUFFER_BPS = 1500;
+
+export const DEFAULT_COPY_SETTINGS = {
+  mode: "fixedUsd",
+  fixedUsd: 250,
+  percentOfSource: 25,
+  maxTradeUsd: 500,
+  slippageCapBps: DEFAULT_SLIPPAGE_BPS,
+  gasBufferBps: DEFAULT_GAS_BUFFER_BPS,
+  insufficientCashBehavior: "skip",
+  allowlist: [] as string[],
+  blocklist: [] as string[]
+} as const;

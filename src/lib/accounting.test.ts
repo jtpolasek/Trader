@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyTradeToState } from "./accounting";
+import { applyTotalLossToState, applyTradeToState } from "./accounting";
 import type { Portfolio, Position, QuotePreview, Token } from "./types";
 
 const token: Token = {
@@ -100,6 +100,32 @@ describe("applyTradeToState", () => {
         preview: preview({ side: "sell", quantity: 2, sellProceedsUsd: 20 })
       })
     ).toThrow("Insufficient token balance");
+  });
+});
+
+describe("applyTotalLossToState", () => {
+  it("zeros a position and realizes remaining cost basis as a loss", () => {
+    const position: Position = {
+      ...basePosition(),
+      quantity: 100,
+      averageEntryUsd: 2,
+      costBasisUsd: 200,
+      realizedPnlUsd: -15,
+      feesPaidUsd: 3
+    };
+
+    const result = applyTotalLossToState({ portfolio, position });
+
+    expect(result.realizedPnlUsd).toBe(-200);
+    expect(result.portfolio.cashUsd).toBe(portfolio.cashUsd);
+    expect(result.portfolio.realizedPnlUsd).toBe(-200);
+    expect(result.position).toMatchObject({
+      quantity: 0,
+      averageEntryUsd: 0,
+      costBasisUsd: 0,
+      realizedPnlUsd: -215,
+      feesPaidUsd: 3
+    });
   });
 });
 

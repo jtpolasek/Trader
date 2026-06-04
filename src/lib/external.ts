@@ -1,4 +1,4 @@
-import { TOKENS } from "./constants";
+import { ETH_CHAIN_ID, getChainTokens } from "./constants";
 import { fromBaseUnits, normalizeAddress, toBaseUnits } from "./money";
 import type { QuotePreview, Token, TradeSide, WalletActivity } from "./types";
 import { assertUsableZeroxQuote, getZeroxPrice } from "./zerox";
@@ -14,6 +14,7 @@ type AlchemyTransfer = {
   to?: string;
   blockNum?: string;
   metadata?: { blockTimestamp?: string };
+  rawContract?: { address?: string | null; decimal?: string | null; value?: string | null };
 };
 
 const ALCHEMY_ACTIVITY_CHAINS = [
@@ -21,12 +22,13 @@ const ALCHEMY_ACTIVITY_CHAINS = [
   { id: 8453, name: "Base", subdomain: "base-mainnet", envPrefix: "BASE" }
 ] as const;
 
-export async function resolveTokenFromAlchemy(address: string): Promise<Token> {
+export async function resolveTokenFromAlchemy(address: string, chainId = ETH_CHAIN_ID): Promise<Token> {
   const tokenAddress = normalizeAddress(address);
-  const cachedUsdc = tokenAddress === TOKENS.USDC.address.toLowerCase();
-  const cachedWeth = tokenAddress === TOKENS.WETH.address.toLowerCase();
+  const chainTokens = getChainTokens(chainId);
+  const cachedUsdc = tokenAddress === chainTokens.usdc.address.toLowerCase();
+  const cachedWeth = tokenAddress === chainTokens.weth.address.toLowerCase();
   if (cachedUsdc || cachedWeth) {
-    const token = cachedUsdc ? TOKENS.USDC : TOKENS.WETH;
+    const token = cachedUsdc ? chainTokens.usdc : chainTokens.weth;
     return {
       address: token.address.toLowerCase(),
       symbol: token.symbol,
@@ -41,7 +43,7 @@ export async function resolveTokenFromAlchemy(address: string): Promise<Token> {
     throw new Error("ALCHEMY_API_KEY is required to resolve token metadata.");
   }
 
-  const response = await fetch(`https://eth-mainnet.g.alchemy.com/v2/${apiKey}`, {
+  const response = await fetch(`https://${chainTokens.alchemySubdomain}.g.alchemy.com/v2/${apiKey}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
@@ -79,21 +81,28 @@ export async function resolveTokenFromAlchemy(address: string): Promise<Token> {
 }
 
 export async function getEthUsdPrice() {
+  return getNativeUsdPrice(ETH_CHAIN_ID);
+}
+
+export async function getNativeUsdPrice(chainId = ETH_CHAIN_ID) {
+  const chainTokens = getChainTokens(chainId);
   const quote = await getZeroxPrice({
-    sellToken: TOKENS.WETH.address,
-    buyToken: TOKENS.USDC.address,
-    sellAmount: toBaseUnits(1, TOKENS.WETH.decimals)
+    chainId,
+    sellToken: chainTokens.weth.address,
+    buyToken: chainTokens.usdc.address,
+    sellAmount: toBaseUnits(1, chainTokens.weth.decimals)
   });
   const buyAmount = Number(quote.buyAmount);
   if (!buyAmount) {
     throw new Error("Could not calculate ETH/USD from 0x.");
   }
-  return fromBaseUnits(quote.buyAmount, TOKENS.USDC.decimals);
+  return fromBaseUnits(quote.buyAmount, chainTokens.usdc.decimals);
 }
 
 export async function buildQuotePreview(input: {
   side: TradeSide;
   token: Token;
+  chainId?: number;
   usdAmount?: number;
   tokenQuantity?: number;
   slippageBps: number;
@@ -106,26 +115,50 @@ export async function buildQuotePreview(input: {
     throw new Error("Sell preview requires a token quantity.");
   }
 
+  const chainId = input.chainId ?? ETH_CHAIN_ID;
+  const chainTokens = getChainTokens(chainId);
   const quote =
     input.side === "buy"
       ? await getZeroxPrice({
-          sellToken: TOKENS.USDC.address,
+          chainId,
+          sellToken: chainTokens.usdc.address,
           buyToken: input.token.address,
-          sellAmount: toBaseUnits(input.usdAmount ?? 0, TOKENS.USDC.decimals)
+          sellAmount: toBaseUnits(input.usdAmount ?? 0, chainTokens.usdc.decimals)
         })
       : await getZeroxPrice({
+          chainId,
           sellToken: input.token.address,
-          buyToken: TOKENS.USDC.address,
+          buyToken: chainTokens.usdc.address,
           sellAmount: toBaseUnits(input.tokenQuantity ?? 0, input.token.decimals)
         });
 
   assertUsableZeroxQuote(quote, input.side);
 
-  const ethUsd = await getEthUsdPrice();
+  const ethUsd = await getNativeUsdPrice(chainId);
   const gasEth = (quote.gasUnits * quote.gasPriceWei) / 1e18;
   const gasUsd = gasEth * ethUsd * (1 + input.gasBufferBps / 10_000);
   const dexFeeUsd = quote.dexFeeUsd;
   const warnings = [...quote.warnings];
+  const snapshotBase = {
+    provider: "0x",
+    quoteKind: "price-preview",
+    endpoint: quote.endpoint,
+    chainId: quote.chainId,
+    side: input.side,
+    sellToken: quote.sellToken,
+    buyToken: quote.buyToken,
+    inputAmount: quote.sellAmount,
+    assumptions: {
+      ethUsd,
+      slippageBps: input.slippageBps,
+      gasBufferBps: input.gasBufferBps,
+      gasUnits: quote.gasUnits,
+      gasPriceWei: quote.gasPriceWei,
+      dexFeeUsd
+    },
+    normalizedQuote: withoutRawResponse(quote),
+    rawQuote: quote.rawResponse
+  };
 
   if (input.side === "buy") {
     const quantity = fromBaseUnits(quote.buyAmount, input.token.decimals);
@@ -144,17 +177,12 @@ export async function buildQuotePreview(input: {
       totalCostUsd,
       sellProceedsUsd: 0,
       warnings,
-      quoteSnapshot: {
-        provider: "0x",
-        ethUsd,
-        normalizedQuote: withoutRawResponse(quote),
-        rawQuote: quote.rawResponse
-      }
+      quoteSnapshot: snapshotBase
     };
   }
 
   const quantity = input.tokenQuantity ?? 0;
-  const proceedsUsd = fromBaseUnits(quote.buyAmount, TOKENS.USDC.decimals);
+  const proceedsUsd = fromBaseUnits(quote.buyAmount, chainTokens.usdc.decimals);
   const slippageUsd = proceedsUsd * (input.slippageBps / 10_000);
   const totalFees = gasUsd + slippageUsd + dexFeeUsd;
   return {
@@ -169,12 +197,7 @@ export async function buildQuotePreview(input: {
     totalCostUsd: totalFees,
     sellProceedsUsd: Math.max(0, proceedsUsd - totalFees),
     warnings,
-    quoteSnapshot: {
-      provider: "0x",
-      ethUsd,
-      normalizedQuote: withoutRawResponse(quote),
-      rawQuote: quote.rawResponse
-    }
+    quoteSnapshot: snapshotBase
   };
 }
 
@@ -293,12 +316,14 @@ export function normalizeAlchemyTransfers(
       hash: transfer.hash ?? "",
       category: transfer.category ?? "unknown",
       asset: transfer.asset ?? "unknown",
+      contractAddress: normalizeOptionalAddress(transfer.rawContract?.address),
       value: Number(transfer.value ?? 0),
       fromAddress: (transfer.from ?? "").toLowerCase(),
       toAddress: (transfer.to ?? "").toLowerCase(),
       blockNum: transfer.blockNum ?? "",
       timestamp: transfer.metadata?.blockTimestamp ?? new Date().toISOString(),
-      isSwapLike: (byHash.get(transfer.hash ?? "") ?? 0) > 1
+      isSwapLike: (byHash.get(transfer.hash ?? "") ?? 0) > 1,
+      rawPayload: JSON.stringify(transfer)
     }));
 }
 
@@ -308,10 +333,16 @@ function transferKey(transfer: AlchemyTransfer) {
     transfer.hash ?? "",
     transfer.category ?? "",
     transfer.asset ?? "",
+    transfer.rawContract?.address ?? "",
     transfer.value ?? "",
     (transfer.from ?? "").toLowerCase(),
     (transfer.to ?? "").toLowerCase()
   ].join("|");
+}
+
+function normalizeOptionalAddress(address?: string | null) {
+  const value = (address ?? "").trim();
+  return /^0x[a-fA-F0-9]{40}$/.test(value) ? value.toLowerCase() : "";
 }
 
 function withoutRawResponse<T extends { rawResponse: unknown }>(quote: T) {

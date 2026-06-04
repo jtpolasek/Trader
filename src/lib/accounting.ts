@@ -59,3 +59,27 @@ export function applyTradeToState(input: {
     realizedPnlUsd
   };
 }
+
+export function applyTotalLossToState(input: {
+  portfolio: Portfolio;
+  position: Position;
+}) {
+  const { portfolio, position } = input;
+  const realizedPnlUsd = -position.costBasisUsd;
+
+  return {
+    portfolio: {
+      cashUsd: portfolio.cashUsd,
+      realizedPnlUsd: portfolio.realizedPnlUsd + realizedPnlUsd,
+      feesPaidUsd: portfolio.feesPaidUsd
+    },
+    position: {
+      quantity: 0,
+      averageEntryUsd: 0,
+      costBasisUsd: 0,
+      realizedPnlUsd: position.realizedPnlUsd + realizedPnlUsd,
+      feesPaidUsd: position.feesPaidUsd
+    },
+    realizedPnlUsd
+  };
+}

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { normalizeAddress } from "@/lib/money";
+import { normalizeAddress, normalizeAddressInput } from "@/lib/money";
 import { deleteWallet, listWallets, upsertWallet } from "@/lib/repositories";
 
 const schema = z.object({
@@ -17,11 +17,14 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const body = schema.parse(await request.json());
+    const addressInput = body.address.trim() || body.gmgnUrl.trim();
+    const address = normalizeAddressInput(addressInput);
+    const gmgnUrl = body.gmgnUrl.trim() || (isGmgnUrl(body.address) ? body.address.trim() : "");
     const wallet = upsertWallet({
-      address: normalizeAddress(body.address),
+      address,
       label: body.label.trim(),
       notes: body.notes.trim(),
-      gmgnUrl: body.gmgnUrl.trim()
+      gmgnUrl
     });
     return NextResponse.json({ wallet });
   } catch (error) {
@@ -29,6 +32,15 @@ export async function POST(request: Request) {
       { error: error instanceof Error ? error.message : "Could not save wallet." },
       { status: 400 }
     );
+  }
+}
+
+function isGmgnUrl(value: string) {
+  try {
+    const url = new URL(value.trim());
+    return url.hostname === "gmgn.ai" || url.hostname.endsWith(".gmgn.ai");
+  } catch {
+    return false;
   }
 }
 

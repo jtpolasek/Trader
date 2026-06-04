@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { TOKENS } from "./constants";
 import { normalizeAlchemyTransfers } from "./external";
-import { normalizeZeroxPriceQuote, summarizeZeroxIssues, ZEROX_PRICE_ENDPOINT } from "./zerox";
+import { getZeroxPrice, normalizeZeroxPriceQuote, summarizeZeroxIssues, ZEROX_PRICE_ENDPOINT } from "./zerox";
 
 describe("summarizeZeroxIssues", () => {
   it("surfaces no liquidity as a specific warning", () => {
@@ -79,6 +79,76 @@ describe("normalizeZeroxPriceQuote", () => {
     );
 
     expect(quote.warnings).toContain("0x did not return a complete gas estimate; gas may be understated.");
+  });
+
+  it("zeroes malformed gas and fee values instead of throwing", () => {
+    const quote = normalizeZeroxPriceQuote(
+      {
+        sellToken: TOKENS.USDC.address,
+        buyToken: "0xtoken",
+        sellAmount: "100000000"
+      },
+      {
+        buyAmount: "250000000",
+        gas: "not-a-number",
+        gasPrice: "also-bad",
+        fees: {
+          zeroExFee: {
+            amount: "not-base-units",
+            token: TOKENS.USDC.address,
+            type: "volume"
+          }
+        }
+      }
+    );
+
+    expect(quote.gasUnits).toBe(0);
+    expect(quote.gasPriceWei).toBe(0);
+    expect(quote.dexFeeUsd).toBe(0);
+    expect(quote.warnings).toContain("0x did not return a complete gas estimate; gas may be understated.");
+  });
+
+  it("ignores non-USDC fee amounts in the USD fee estimate", () => {
+    const quote = normalizeZeroxPriceQuote(
+      {
+        sellToken: TOKENS.USDC.address,
+        buyToken: "0xtoken",
+        sellAmount: "100000000"
+      },
+      {
+        buyAmount: "250000000",
+        gas: "210000",
+        gasPrice: "30000000000",
+        fees: {
+          zeroExFee: {
+            amount: "1000000000000000000",
+            token: TOKENS.WETH.address,
+            type: "volume"
+          }
+        }
+      }
+    );
+
+    expect(quote.dexFeeUsd).toBe(0);
+  });
+});
+
+describe("getZeroxPrice", () => {
+  it("fails clearly when the 0x API key is missing", async () => {
+    const originalApiKey = process.env.ZEROX_API_KEY;
+    delete process.env.ZEROX_API_KEY;
+
+    await expect(
+      getZeroxPrice({
+        sellToken: TOKENS.USDC.address,
+        buyToken: TOKENS.WETH.address,
+        sellAmount: "100000000"
+      })
+    ).rejects.toThrow("ZEROX_API_KEY is required to request swap prices.");
+
+    if (originalApiKey) {
+      process.env.ZEROX_API_KEY = originalApiKey;
+    }
   });
 });
 

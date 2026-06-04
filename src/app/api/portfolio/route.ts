@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getPortfolio, listPositions, listTrades, listWallets } from "@/lib/repositories";
+import { getCopySettings, getPortfolio, listPositions, listTrades, listWallets } from "@/lib/repositories";
 
 export async function GET() {
   const portfolio = getPortfolio();
@@ -13,6 +13,7 @@ export async function GET() {
 
   return NextResponse.json({
     portfolio,
+    copySettings: getCopySettings(),
     positions,
     trades,
     wallets,

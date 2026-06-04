@@ -1,4 +1,4 @@
-import { ETH_CHAIN_ID, TOKENS } from "./constants";
+import { ETH_CHAIN_ID, getChainTokens } from "./constants";
 import { fromBaseUnits } from "./money";
 import type { TradeSide } from "./types";
 
@@ -35,6 +35,7 @@ type ZeroxIssueMap = {
 };
 
 export type ZeroxPriceParams = {
+  chainId?: number;
   sellToken: string;
   buyToken: string;
   sellAmount: string;
@@ -62,7 +63,7 @@ export async function getZeroxPrice(params: ZeroxPriceParams) {
   }
 
   const search = new URLSearchParams({
-    chainId: String(ETH_CHAIN_ID),
+    chainId: String(params.chainId ?? ETH_CHAIN_ID),
     sellToken: params.sellToken,
     buyToken: params.buyToken,
     sellAmount: params.sellAmount
@@ -89,8 +90,8 @@ export function normalizeZeroxPriceQuote(
   rawResponse: ZeroxRawQuote
 ): NormalizedZeroxQuote {
   const warnings = summarizeZeroxIssues(rawResponse);
-  const gasUnits = Number(rawResponse.gas ?? 0);
-  const gasPriceWei = Number(rawResponse.gasPrice ?? 0);
+  const gasUnits = finiteNumber(rawResponse.gas);
+  const gasPriceWei = finiteNumber(rawResponse.gasPrice);
 
   if (!gasUnits || !gasPriceWei) {
     warnings.push("0x did not return a complete gas estimate; gas may be understated.");
@@ -99,14 +100,14 @@ export function normalizeZeroxPriceQuote(
   return {
     provider: "0x",
     endpoint: ZEROX_PRICE_ENDPOINT,
-    chainId: ETH_CHAIN_ID,
+    chainId: params.chainId ?? ETH_CHAIN_ID,
     sellToken: params.sellToken,
     buyToken: params.buyToken,
     sellAmount: rawResponse.sellAmount ?? params.sellAmount,
     buyAmount: rawResponse.buyAmount ?? "0",
     gasUnits,
     gasPriceWei,
-    dexFeeUsd: estimateDexFeeUsd(rawResponse),
+    dexFeeUsd: estimateDexFeeUsd(rawResponse, params.chainId),
     warnings,
     rawResponse
   };
@@ -176,14 +177,24 @@ function hasVisibleUnknownIssue(issues: ZeroxIssueMap) {
   return Object.keys(issues).some((key) => !ignoredPaperModeKeys.has(key));
 }
 
-function estimateDexFeeUsd(quote: ZeroxRawQuote) {
+function estimateDexFeeUsd(quote: ZeroxRawQuote, chainId = ETH_CHAIN_ID) {
   const fees = quote.fees;
   if (!fees) return 0;
+  const usdc = getChainTokens(chainId).usdc;
   const feeValues = [fees.integratorFee, fees.zeroExFee, fees.gasFee]
     .filter(Boolean)
     .map((fee) => {
-      if (!fee?.amount || fee.token?.toLowerCase() !== TOKENS.USDC.address.toLowerCase()) return 0;
-      return fromBaseUnits(fee.amount, TOKENS.USDC.decimals);
+      if (!fee?.amount || fee.token?.toLowerCase() !== usdc.address.toLowerCase()) return 0;
+      try {
+        return fromBaseUnits(fee.amount, usdc.decimals);
+      } catch {
+        return 0;
+      }
     });
   return feeValues.reduce((sum, value) => sum + value, 0);
+}
+
+function finiteNumber(value: unknown) {
+  const number = Number(value ?? 0);
+  return Number.isFinite(number) ? number : 0;
 }
