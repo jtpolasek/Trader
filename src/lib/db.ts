@@ -1,7 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { DEFAULT_PORTFOLIO } from "./constants";
+import { ledgerDeltaFromTrade } from "./ledger";
 
 let db: DatabaseSync | null = null;
 
@@ -74,6 +76,24 @@ function migrate(database: DatabaseSync) {
       FOREIGN KEY(token_address) REFERENCES tokens(address)
     );
 
+    CREATE TABLE IF NOT EXISTS ledger_entries (
+      id TEXT PRIMARY KEY,
+      entry_type TEXT NOT NULL,
+      trade_id TEXT NOT NULL,
+      token_address TEXT NOT NULL,
+      cash_delta REAL NOT NULL,
+      quantity_delta REAL NOT NULL,
+      cost_basis_delta REAL NOT NULL,
+      realized_pnl_delta REAL NOT NULL,
+      fee_delta REAL NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(trade_id) REFERENCES trades(id),
+      FOREIGN KEY(token_address) REFERENCES tokens(address)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_ledger_entries_token ON ledger_entries(token_address);
+    CREATE INDEX IF NOT EXISTS idx_ledger_entries_trade ON ledger_entries(trade_id);
+
     CREATE TABLE IF NOT EXISTS quotes (
       id TEXT PRIMARY KEY,
       token_address TEXT NOT NULL,
@@ -95,6 +115,7 @@ function migrate(database: DatabaseSync) {
       hash TEXT NOT NULL,
       category TEXT NOT NULL,
       asset TEXT NOT NULL,
+      contract_address TEXT NOT NULL DEFAULT '',
       value REAL NOT NULL,
       from_address TEXT NOT NULL,
       to_address TEXT NOT NULL,
@@ -103,7 +124,32 @@ function migrate(database: DatabaseSync) {
       chain_id INTEGER NOT NULL DEFAULT 1,
       chain_name TEXT NOT NULL DEFAULT 'Ethereum',
       is_swap_like INTEGER NOT NULL DEFAULT 0,
+      raw_payload TEXT NOT NULL DEFAULT '',
       UNIQUE(wallet_address, hash, category, asset, value, from_address, to_address),
+      FOREIGN KEY(wallet_address) REFERENCES wallets(address)
+    );
+
+    CREATE TABLE IF NOT EXISTS trade_candidates (
+      id TEXT PRIMARY KEY,
+      wallet_address TEXT NOT NULL,
+      chain_id INTEGER NOT NULL,
+      chain_name TEXT NOT NULL,
+      hash TEXT NOT NULL,
+      status TEXT NOT NULL,
+      confidence REAL NOT NULL,
+      side TEXT NOT NULL,
+      token_in_asset TEXT NOT NULL,
+      token_in_address TEXT NOT NULL DEFAULT '',
+      token_in_amount REAL NOT NULL,
+      token_out_asset TEXT NOT NULL,
+      token_out_address TEXT NOT NULL DEFAULT '',
+      token_out_amount REAL NOT NULL,
+      reason TEXT NOT NULL,
+      transfer_count INTEGER NOT NULL,
+      source_timestamp TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(wallet_address, chain_id, hash),
       FOREIGN KEY(wallet_address) REFERENCES wallets(address)
     );
 
@@ -115,6 +161,11 @@ function migrate(database: DatabaseSync) {
 
   addColumnIfMissing(database, "wallet_activity", "chain_id", "INTEGER NOT NULL DEFAULT 1");
   addColumnIfMissing(database, "wallet_activity", "chain_name", "TEXT NOT NULL DEFAULT 'Ethereum'");
+  addColumnIfMissing(database, "wallet_activity", "contract_address", "TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing(database, "wallet_activity", "raw_payload", "TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing(database, "trade_candidates", "token_in_address", "TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing(database, "trade_candidates", "token_out_address", "TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing(database, "trade_candidates", "source_timestamp", "TEXT NOT NULL DEFAULT ''");
 
   const now = new Date().toISOString();
   database
@@ -131,11 +182,67 @@ function migrate(database: DatabaseSync) {
       now,
       now
     );
+
+  backfillLedger(database);
 }
 
 function addColumnIfMissing(database: DatabaseSync, table: string, column: string, definition: string) {
   const columns = database.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
   if (!columns.some((item) => item.name === column)) {
     database.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
+}
+
+function backfillLedger(database: DatabaseSync) {
+  const existing = database.prepare("SELECT COUNT(*) AS count FROM ledger_entries").get() as { count: number };
+  if (existing.count > 0) return;
+
+  const trades = database
+    .prepare(
+      `SELECT id, side, token_address, quantity, price_usd, notional_usd, gas_usd, slippage_usd, dex_fee_usd,
+              total_cost_usd, realized_pnl_usd, created_at
+       FROM trades
+       ORDER BY created_at ASC`
+    )
+    .all() as Array<Record<string, unknown>>;
+  if (trades.length === 0) return;
+
+  const insert = database.prepare(
+    `INSERT INTO ledger_entries
+      (id, entry_type, trade_id, token_address, cash_delta, quantity_delta, cost_basis_delta, realized_pnl_delta, fee_delta, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  );
+
+  database.exec("BEGIN");
+  try {
+    for (const row of trades) {
+      const delta = ledgerDeltaFromTrade({
+        side: String(row.side) as "buy" | "sell",
+        quantity: Number(row.quantity),
+        priceUsd: Number(row.price_usd),
+        notionalUsd: Number(row.notional_usd),
+        gasUsd: Number(row.gas_usd),
+        slippageUsd: Number(row.slippage_usd),
+        dexFeeUsd: Number(row.dex_fee_usd),
+        totalCostUsd: Number(row.total_cost_usd),
+        realizedPnlUsd: Number(row.realized_pnl_usd)
+      });
+      insert.run(
+        randomUUID(),
+        delta.entryType,
+        String(row.id),
+        String(row.token_address),
+        delta.cashDelta,
+        delta.quantityDelta,
+        delta.costBasisDelta,
+        delta.realizedPnlDelta,
+        delta.feeDelta,
+        String(row.created_at)
+      );
+    }
+    database.exec("COMMIT");
+  } catch (error) {
+    database.exec("ROLLBACK");
+    throw error;
   }
 }
