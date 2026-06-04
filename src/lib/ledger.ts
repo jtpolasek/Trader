@@ -83,3 +83,52 @@ export function derivePositions(entries: LedgerEntry[]): PositionAggregate[] {
     }))
     .sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
 }
+
+export type LedgerMismatch = {
+  tradeId: string;
+  field: string;
+  expected: number;
+  actual: number | null;
+};
+
+const VERIFY_EPSILON = 1e-6;
+
+export function verifyLedger(
+  trades: Array<TradeLedgerInput & { id: string }>,
+  entries: LedgerEntry[]
+): { ok: boolean; mismatches: LedgerMismatch[] } {
+  const entryByTrade = new Map(entries.map((item) => [item.tradeId, item]));
+  const tradeIds = new Set(trades.map((item) => item.id));
+  const mismatches: LedgerMismatch[] = [];
+
+  for (const item of trades) {
+    const expected = ledgerDeltaFromTrade(item);
+    const stored = entryByTrade.get(item.id);
+    if (!stored) {
+      mismatches.push({ tradeId: item.id, field: "entry", expected: 0, actual: null });
+      continue;
+    }
+
+    const checks: Array<[string, number, number]> = [
+      ["cashDelta", expected.cashDelta, stored.cashDelta],
+      ["quantityDelta", expected.quantityDelta, stored.quantityDelta],
+      ["costBasisDelta", expected.costBasisDelta, stored.costBasisDelta],
+      ["realizedPnlDelta", expected.realizedPnlDelta, stored.realizedPnlDelta],
+      ["feeDelta", expected.feeDelta, stored.feeDelta]
+    ];
+
+    for (const [field, exp, act] of checks) {
+      if (Math.abs(exp - act) > VERIFY_EPSILON) {
+        mismatches.push({ tradeId: item.id, field, expected: exp, actual: act });
+      }
+    }
+  }
+
+  for (const item of entries) {
+    if (!tradeIds.has(item.tradeId)) {
+      mismatches.push({ tradeId: item.tradeId, field: "orphan-entry", expected: 0, actual: null });
+    }
+  }
+
+  return { ok: mismatches.length === 0, mismatches };
+}

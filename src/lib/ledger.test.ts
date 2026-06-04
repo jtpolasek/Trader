@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ledgerDeltaFromTrade, derivePortfolioTotals, derivePositions } from "./ledger";
+import { ledgerDeltaFromTrade, derivePortfolioTotals, derivePositions, verifyLedger } from "./ledger";
 import type { TradeLedgerInput, LedgerEntry } from "./types";
 
 function entry(overrides: Partial<LedgerEntry>): LedgerEntry {
@@ -122,5 +122,36 @@ describe("ledgerDeltaFromTrade", () => {
       realizedPnlDelta: -200,
       feeDelta: 0
     });
+  });
+});
+
+describe("verifyLedger", () => {
+  const buyTrade = { id: "t1", ...trade({}) };
+
+  it("passes when each trade has a matching entry", () => {
+    const entries = [entry({ tradeId: "t1", cashDelta: -106, quantityDelta: 10, costBasisDelta: 106, realizedPnlDelta: 0, feeDelta: 6 })];
+    const result = verifyLedger([buyTrade], entries);
+    expect(result.ok).toBe(true);
+    expect(result.mismatches).toEqual([]);
+  });
+
+  it("flags a missing entry", () => {
+    const result = verifyLedger([buyTrade], []);
+    expect(result.ok).toBe(false);
+    expect(result.mismatches).toContainEqual({ tradeId: "t1", field: "entry", expected: 0, actual: null });
+  });
+
+  it("flags a tampered delta", () => {
+    const entries = [entry({ tradeId: "t1", cashDelta: -999, quantityDelta: 10, costBasisDelta: 106, realizedPnlDelta: 0, feeDelta: 6 })];
+    const result = verifyLedger([buyTrade], entries);
+    expect(result.ok).toBe(false);
+    expect(result.mismatches).toContainEqual({ tradeId: "t1", field: "cashDelta", expected: -106, actual: -999 });
+  });
+
+  it("flags an orphan entry with no trade", () => {
+    const entries = [entry({ tradeId: "ghost", cashDelta: 1 })];
+    const result = verifyLedger([], entries);
+    expect(result.ok).toBe(false);
+    expect(result.mismatches).toContainEqual({ tradeId: "ghost", field: "orphan-entry", expected: 0, actual: null });
   });
 });
