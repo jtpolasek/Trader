@@ -80,10 +80,87 @@ export type WalletActivity = {
   hash: string;
   category: string;
   asset: string;
+  contractAddress: string;
   value: number;
   fromAddress: string;
   toAddress: string;
   blockNum: string;
   timestamp: string;
   isSwapLike: boolean;
+  rawPayload: string;
+};
+
+export type TradeCandidateStatus = "candidate" | "decoded" | "skipped" | "copied" | "partial" | "failed";
+
+export type TradeCandidate = {
+  id: string;
+  walletAddress: string;
+  chainId: number;
+  chainName: string;
+  hash: string;
+  status: TradeCandidateStatus;
+  confidence: number;
+  side: TradeSide | "unknown";
+  tokenInAsset: string;
+  tokenInAddress: string;
+  tokenInAmount: number;
+  tokenOutAsset: string;
+  tokenOutAddress: string;
+  tokenOutAmount: number;
+  reason: string;
+  transferCount: number;
+  sourceTimestamp: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CopySettings = {
+  mode: "fixedUsd" | "percentOfSource";
+  fixedUsd: number;
+  percentOfSource: number;
+  maxTradeUsd: number;
+  slippageCapBps: number;
+  gasBufferBps: number;
+  insufficientCashBehavior: "skip" | "cap";
+  allowlist: string[];
+  blocklist: string[];
+};
+
+export type TradeInput = Omit<Trade, "id" | "createdAt" | "symbol">;
+
+export type TradeLedgerInput = Pick<
+  Trade,
+  | "side"
+  | "quantity"
+  | "priceUsd"
+  | "notionalUsd"
+  | "gasUsd"
+  | "slippageUsd"
+  | "dexFeeUsd"
+  | "totalCostUsd"
+  | "realizedPnlUsd"
+>;
+
+export type LedgerEntryType = "buy" | "sell" | "total_loss";
+
+export type LedgerDelta = {
+  entryType: LedgerEntryType;
+  cashDelta: number;
+  quantityDelta: number;
+  costBasisDelta: number;
+  realizedPnlDelta: number;
+  feeDelta: number;
+};
+
+export type LedgerEntry = LedgerDelta & {
+  id: string;
+  tradeId: string;
+  tokenAddress: string;
+  createdAt: string;
+};
+
+export type PortfolioTotals = {
+  cashUsd: number;
+  realizedPnlUsd: number;
+  feesPaidUsd: number;
 };
