@@ -8,15 +8,14 @@ import {
   getPortfolio,
   getPosition,
   getToken,
-  insertTrade,
-  updatePortfolio,
-  upsertPosition,
+  recordTrade,
   upsertToken
 } from "@/lib/repositories";
 
 const schema = z.object({
   side: z.enum(["buy", "sell"]),
   tokenAddress: z.string(),
+  chainId: z.number().optional(),
   usdAmount: z.number().positive().optional(),
   tokenQuantity: z.number().positive().optional(),
   slippageBps: z.number().min(0).max(5000).optional().default(DEFAULT_SLIPPAGE_BPS),
@@ -27,10 +26,11 @@ export async function POST(request: Request) {
   try {
     const body = schema.parse(await request.json());
     const tokenAddress = normalizeAddress(body.tokenAddress);
-    const token = getToken(tokenAddress) ?? upsertToken(await resolveTokenFromAlchemy(tokenAddress));
+    const token = getToken(tokenAddress) ?? upsertToken(await resolveTokenFromAlchemy(tokenAddress, body.chainId));
     const preview = await buildQuotePreview({
       side: body.side,
       token,
+      chainId: body.chainId,
       usdAmount: body.usdAmount,
       tokenQuantity: body.tokenQuantity,
       slippageBps: body.slippageBps,
@@ -40,17 +40,8 @@ export async function POST(request: Request) {
     const portfolio = getPortfolio();
     const position = getPosition(tokenAddress);
     const next = applyTradeToState({ portfolio, position, preview });
-    updatePortfolio(next.portfolio.cashUsd, next.portfolio.realizedPnlUsd, next.portfolio.feesPaidUsd);
-    upsertPosition({
-      tokenAddress,
-      quantity: next.position.quantity,
-      averageEntryUsd: next.position.averageEntryUsd,
-      costBasisUsd: next.position.costBasisUsd,
-      realizedPnlUsd: next.position.realizedPnlUsd,
-      feesPaidUsd: next.position.feesPaidUsd
-    });
 
-    const tradeId = insertTrade({
+    const tradeId = recordTrade({
       side: preview.side,
       tokenAddress,
       quantity: preview.quantity,
