@@ -1,6 +1,61 @@
 import { describe, expect, it } from "vitest";
-import { ledgerDeltaFromTrade } from "./ledger";
-import type { TradeLedgerInput } from "./types";
+import { ledgerDeltaFromTrade, derivePortfolioTotals, derivePositions } from "./ledger";
+import type { TradeLedgerInput, LedgerEntry } from "./types";
+
+function entry(overrides: Partial<LedgerEntry>): LedgerEntry {
+  return {
+    id: "e",
+    tradeId: "t",
+    tokenAddress: "0xtoken",
+    entryType: "buy",
+    cashDelta: 0,
+    quantityDelta: 0,
+    costBasisDelta: 0,
+    realizedPnlDelta: 0,
+    feeDelta: 0,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    ...overrides
+  };
+}
+
+describe("derivePortfolioTotals", () => {
+  it("sums cash, realized pnl, and fees onto starting cash", () => {
+    const totals = derivePortfolioTotals(
+      [
+        entry({ cashDelta: -106, feeDelta: 6 }),
+        entry({ cashDelta: 56, realizedPnlDelta: 16, feeDelta: 4 })
+      ],
+      10_000
+    );
+    expect(totals).toEqual({ cashUsd: 9_950, realizedPnlUsd: 16, feesPaidUsd: 10 });
+  });
+});
+
+describe("derivePositions", () => {
+  it("aggregates per token and computes average entry", () => {
+    const positions = derivePositions([
+      entry({ tokenAddress: "0xa", quantityDelta: 10, costBasisDelta: 106, feeDelta: 6, createdAt: "2026-01-01T00:00:00.000Z" }),
+      entry({ tokenAddress: "0xa", quantityDelta: 5, costBasisDelta: 83, feeDelta: 8, createdAt: "2026-01-02T00:00:00.000Z" })
+    ]);
+    expect(positions).toHaveLength(1);
+    expect(positions[0]).toMatchObject({
+      tokenAddress: "0xa",
+      quantity: 15,
+      costBasisUsd: 189,
+      feesPaidUsd: 14,
+      updatedAt: "2026-01-02T00:00:00.000Z"
+    });
+    expect(positions[0].averageEntryUsd).toBeCloseTo(12.6);
+  });
+
+  it("omits fully closed positions", () => {
+    const positions = derivePositions([
+      entry({ tokenAddress: "0xa", quantityDelta: 100, costBasisDelta: 200 }),
+      entry({ tokenAddress: "0xa", quantityDelta: -100, costBasisDelta: -200, realizedPnlDelta: -200, entryType: "total_loss" })
+    ]);
+    expect(positions).toHaveLength(0);
+  });
+});
 
 function trade(overrides: Partial<TradeLedgerInput>): TradeLedgerInput {
   return {
