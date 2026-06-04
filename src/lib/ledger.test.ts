@@ -55,6 +55,18 @@ describe("derivePositions", () => {
     ]);
     expect(positions).toHaveLength(0);
   });
+
+  it("produces independent aggregates for two different token addresses", () => {
+    const positions = derivePositions([
+      entry({ tokenAddress: "0xa", quantityDelta: 10, costBasisDelta: 100, createdAt: "2026-01-03T00:00:00.000Z" }),
+      entry({ tokenAddress: "0xa", quantityDelta: 5, costBasisDelta: 50, createdAt: "2026-01-04T00:00:00.000Z" }),
+      entry({ tokenAddress: "0xb", quantityDelta: 20, costBasisDelta: 400, createdAt: "2026-01-02T00:00:00.000Z" })
+    ]);
+    expect(positions).toHaveLength(2);
+    // 0xa has the latest updatedAt so it sorts first (descending)
+    expect(positions[0]).toMatchObject({ tokenAddress: "0xa", quantity: 15, costBasisUsd: 150 });
+    expect(positions[1]).toMatchObject({ tokenAddress: "0xb", quantity: 20, costBasisUsd: 400 });
+  });
 });
 
 function trade(overrides: Partial<TradeLedgerInput>): TradeLedgerInput {

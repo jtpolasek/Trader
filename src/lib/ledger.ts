@@ -55,9 +55,9 @@ export function derivePositions(entries: LedgerEntry[]): PositionAggregate[] {
   const byToken = new Map<string, PositionAggregate>();
 
   for (const item of entries) {
-    const current =
-      byToken.get(item.tokenAddress) ??
-      {
+    let current = byToken.get(item.tokenAddress);
+    if (!current) {
+      current = {
         tokenAddress: item.tokenAddress,
         quantity: 0,
         averageEntryUsd: 0,
@@ -66,20 +66,20 @@ export function derivePositions(entries: LedgerEntry[]): PositionAggregate[] {
         feesPaidUsd: 0,
         updatedAt: item.createdAt
       };
-
+      byToken.set(item.tokenAddress, current);
+    }
     current.quantity += item.quantityDelta;
     current.costBasisUsd += item.costBasisDelta;
     current.realizedPnlUsd += item.realizedPnlDelta;
     current.feesPaidUsd += item.feeDelta;
     if (item.createdAt > current.updatedAt) current.updatedAt = item.createdAt;
-    byToken.set(item.tokenAddress, current);
   }
 
   return Array.from(byToken.values())
     .filter((position) => position.quantity > OPEN_POSITION_EPSILON)
     .map((position) => ({
       ...position,
-      averageEntryUsd: position.quantity > OPEN_POSITION_EPSILON ? position.costBasisUsd / position.quantity : 0
+      averageEntryUsd: position.costBasisUsd / position.quantity
     }))
     .sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
 }
