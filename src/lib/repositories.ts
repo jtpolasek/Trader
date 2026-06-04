@@ -1,38 +1,53 @@
 import { randomUUID } from "node:crypto";
+import { DEFAULT_COPY_SETTINGS } from "./constants";
 import { getDb } from "./db";
-import type { Portfolio, Position, Token, Trade, Wallet, WalletActivity } from "./types";
+import type { CopySettings, LedgerEntry, Portfolio, Position, Token, Trade, TradeCandidate, TradeInput, TradeLedgerInput, Wallet, WalletActivity } from "./types";
+import { derivePortfolioTotals, derivePositions, ledgerDeltaFromTrade } from "./ledger";
 
 type Row = Record<string, unknown>;
 
 const now = () => new Date().toISOString();
 
-function rowToPortfolio(row: Row): Portfolio {
-  return {
-    id: String(row.id),
-    name: String(row.name),
-    cashUsd: Number(row.cash_usd),
-    startingCashUsd: Number(row.starting_cash_usd),
-    realizedPnlUsd: Number(row.realized_pnl_usd),
-    feesPaidUsd: Number(row.fees_paid_usd),
-    createdAt: String(row.created_at),
-    updatedAt: String(row.updated_at)
-  };
-}
 
 export function getPortfolio() {
   const row = getDb().prepare("SELECT * FROM portfolios WHERE id = 'default'").get() as Row;
-  return rowToPortfolio(row);
+  const startingCashUsd = Number(row.starting_cash_usd);
+  const totals = derivePortfolioTotals(listLedgerEntries(), startingCashUsd);
+  return {
+    id: String(row.id),
+    name: String(row.name),
+    cashUsd: totals.cashUsd,
+    startingCashUsd,
+    realizedPnlUsd: totals.realizedPnlUsd,
+    feesPaidUsd: totals.feesPaidUsd,
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at)
+  } satisfies Portfolio;
 }
 
-export function updatePortfolio(cashUsd: number, realizedPnlUsd: number, feesPaidUsd: number) {
+export function getCopySettings(): CopySettings {
+  const row = getDb().prepare("SELECT value FROM settings WHERE key = 'copy_settings'").get() as Row | undefined;
+  if (!row) return { ...DEFAULT_COPY_SETTINGS };
+
+  try {
+    return normalizeCopySettings(JSON.parse(String(row.value)));
+  } catch {
+    return { ...DEFAULT_COPY_SETTINGS };
+  }
+}
+
+export function updateCopySettings(settings: CopySettings): CopySettings {
+  const normalized = normalizeCopySettings(settings);
   getDb()
     .prepare(
-      `UPDATE portfolios
-       SET cash_usd = ?, realized_pnl_usd = ?, fees_paid_usd = ?, updated_at = ?
-       WHERE id = 'default'`
+      `INSERT INTO settings (key, value)
+       VALUES ('copy_settings', ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`
     )
-    .run(cashUsd, realizedPnlUsd, feesPaidUsd, now());
+    .run(JSON.stringify(normalized));
+  return normalized;
 }
+
 
 export function listWallets(): Wallet[] {
   return (getDb().prepare("SELECT * FROM wallets ORDER BY created_at DESC").all() as Row[]).map((row) => ({
@@ -63,6 +78,7 @@ export function deleteWallet(address: string) {
   const db = getDb();
   db.exec("BEGIN");
   try {
+    db.prepare("DELETE FROM trade_candidates WHERE wallet_address = ?").run(address);
     db.prepare("DELETE FROM wallet_activity WHERE wallet_address = ?").run(address);
     const result = db.prepare("DELETE FROM wallets WHERE address = ?").run(address);
     db.exec("COMMIT");
@@ -94,62 +110,63 @@ export function upsertToken(input: Omit<Token, "createdAt">) {
 }
 
 export function listPositions(): Position[] {
-  return (getDb()
-    .prepare(
-      `SELECT p.*, t.symbol, t.name, t.decimals
-       FROM positions p
-       JOIN tokens t ON t.address = p.token_address
-       WHERE p.quantity > 0.0000000001
-       ORDER BY p.updated_at DESC`
-    )
-    .all() as Row[]).map(rowToPosition);
+  const aggregates = derivePositions(listLedgerEntries());
+  const positions: Position[] = [];
+  for (const aggregate of aggregates) {
+    const token = getToken(aggregate.tokenAddress);
+    if (!token) continue;
+    positions.push({
+      tokenAddress: aggregate.tokenAddress,
+      symbol: token.symbol,
+      name: token.name,
+      decimals: token.decimals,
+      quantity: aggregate.quantity,
+      averageEntryUsd: aggregate.averageEntryUsd,
+      costBasisUsd: aggregate.costBasisUsd,
+      realizedPnlUsd: aggregate.realizedPnlUsd,
+      feesPaidUsd: aggregate.feesPaidUsd,
+      updatedAt: aggregate.updatedAt
+    });
+  }
+  return positions;
 }
 
 export function getPosition(tokenAddress: string) {
-  const row = getDb()
-    .prepare(
-      `SELECT p.*, t.symbol, t.name, t.decimals
-       FROM positions p
-       JOIN tokens t ON t.address = p.token_address
-       WHERE p.token_address = ?`
-    )
-    .get(tokenAddress) as Row | undefined;
-  return row ? rowToPosition(row) : null;
+  const entries = listLedgerEntries().filter((entry) => entry.tokenAddress === tokenAddress);
+  if (entries.length === 0) return null;
+
+  const token = getToken(tokenAddress);
+  if (!token) return null;
+
+  let quantity = 0;
+  let costBasisUsd = 0;
+  let realizedPnlUsd = 0;
+  let feesPaidUsd = 0;
+  let updatedAt = entries[0].createdAt;
+  for (const entry of entries) {
+    quantity += entry.quantityDelta;
+    costBasisUsd += entry.costBasisDelta;
+    realizedPnlUsd += entry.realizedPnlDelta;
+    feesPaidUsd += entry.feeDelta;
+    if (entry.createdAt > updatedAt) updatedAt = entry.createdAt;
+  }
+
+  return {
+    tokenAddress,
+    symbol: token.symbol,
+    name: token.name,
+    decimals: token.decimals,
+    quantity,
+    averageEntryUsd: quantity > 1e-10 ? costBasisUsd / quantity : 0,
+    costBasisUsd,
+    realizedPnlUsd,
+    feesPaidUsd,
+    updatedAt
+  } satisfies Position;
 }
 
-export function upsertPosition(position: {
-  tokenAddress: string;
-  quantity: number;
-  averageEntryUsd: number;
-  costBasisUsd: number;
-  realizedPnlUsd: number;
-  feesPaidUsd: number;
-}) {
-  getDb()
-    .prepare(
-      `INSERT INTO positions
-        (token_address, quantity, average_entry_usd, cost_basis_usd, realized_pnl_usd, fees_paid_usd, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(token_address) DO UPDATE SET
-        quantity = excluded.quantity,
-        average_entry_usd = excluded.average_entry_usd,
-        cost_basis_usd = excluded.cost_basis_usd,
-        realized_pnl_usd = excluded.realized_pnl_usd,
-        fees_paid_usd = excluded.fees_paid_usd,
-        updated_at = excluded.updated_at`
-    )
-    .run(
-      position.tokenAddress,
-      position.quantity,
-      position.averageEntryUsd,
-      position.costBasisUsd,
-      position.realizedPnlUsd,
-      position.feesPaidUsd,
-      now()
-    );
-}
 
-export function insertTrade(input: Omit<Trade, "id" | "createdAt" | "symbol">) {
+export function insertTrade(input: TradeInput) {
   const id = randomUUID();
   const createdAt = now();
   getDb()
@@ -174,6 +191,81 @@ export function insertTrade(input: Omit<Trade, "id" | "createdAt" | "symbol">) {
       createdAt
     );
   return id;
+}
+
+function insertLedgerEntryRow(tradeId: string, tokenAddress: string, input: TradeInput) {
+  const delta = ledgerDeltaFromTrade(input);
+  getDb()
+    .prepare(
+      `INSERT INTO ledger_entries
+        (id, entry_type, trade_id, token_address, cash_delta, quantity_delta, cost_basis_delta, realized_pnl_delta, fee_delta, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(
+      randomUUID(),
+      delta.entryType,
+      tradeId,
+      tokenAddress,
+      delta.cashDelta,
+      delta.quantityDelta,
+      delta.costBasisDelta,
+      delta.realizedPnlDelta,
+      delta.feeDelta,
+      now()
+    );
+}
+
+export function recordTrade(input: TradeInput): string {
+  const db = getDb();
+  db.exec("BEGIN");
+  try {
+    const tradeId = insertTrade(input);
+    insertLedgerEntryRow(tradeId, input.tokenAddress, input);
+    db.exec("COMMIT");
+    return tradeId;
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+}
+
+export function listLedgerEntries(): LedgerEntry[] {
+  return (getDb()
+    .prepare(
+      `SELECT * FROM ledger_entries ORDER BY created_at ASC, rowid ASC`
+    )
+    .all() as Row[]).map((row) => ({
+    id: String(row.id),
+    tradeId: String(row.trade_id),
+    tokenAddress: String(row.token_address),
+    entryType: String(row.entry_type) as LedgerEntry["entryType"],
+    cashDelta: Number(row.cash_delta),
+    quantityDelta: Number(row.quantity_delta),
+    costBasisDelta: Number(row.cost_basis_delta),
+    realizedPnlDelta: Number(row.realized_pnl_delta),
+    feeDelta: Number(row.fee_delta),
+    createdAt: String(row.created_at)
+  }));
+}
+
+export function listTradesForLedger(): Array<TradeLedgerInput & { id: string }> {
+  return (getDb()
+    .prepare(
+      `SELECT id, side, quantity, price_usd, notional_usd, gas_usd, slippage_usd, dex_fee_usd, total_cost_usd, realized_pnl_usd
+       FROM trades`
+    )
+    .all() as Row[]).map((row) => ({
+    id: String(row.id),
+    side: String(row.side) as Trade["side"],
+    quantity: Number(row.quantity),
+    priceUsd: Number(row.price_usd),
+    notionalUsd: Number(row.notional_usd),
+    gasUsd: Number(row.gas_usd),
+    slippageUsd: Number(row.slippage_usd),
+    dexFeeUsd: Number(row.dex_fee_usd),
+    totalCostUsd: Number(row.total_cost_usd),
+    realizedPnlUsd: Number(row.realized_pnl_usd)
+  }));
 }
 
 export function listTrades(): Trade[] {
@@ -223,8 +315,9 @@ export function insertQuote(input: {
 export function insertWalletActivity(items: Omit<WalletActivity, "id">[]) {
   const statement = getDb().prepare(
     `INSERT OR IGNORE INTO wallet_activity
-      (id, wallet_address, chain_id, chain_name, hash, category, asset, value, from_address, to_address, block_num, timestamp, is_swap_like)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      (id, wallet_address, chain_id, chain_name, hash, category, asset, contract_address, value, from_address, to_address,
+       block_num, timestamp, is_swap_like, raw_payload)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
   const db = getDb();
   db.exec("BEGIN");
@@ -238,12 +331,14 @@ export function insertWalletActivity(items: Omit<WalletActivity, "id">[]) {
         item.hash,
         item.category,
         item.asset,
+        item.contractAddress,
         item.value,
         item.fromAddress,
         item.toAddress,
         item.blockNum,
         item.timestamp,
-        item.isSwapLike ? 1 : 0
+        item.isSwapLike ? 1 : 0,
+        item.rawPayload
       );
     }
     db.exec("COMMIT");
@@ -269,13 +364,103 @@ export function listWalletActivity(walletAddress: string): WalletActivity[] {
     hash: String(row.hash),
     category: String(row.category),
     asset: String(row.asset),
+    contractAddress: String(row.contract_address),
     value: Number(row.value),
     fromAddress: String(row.from_address),
     toAddress: String(row.to_address),
     blockNum: String(row.block_num),
     timestamp: String(row.timestamp),
-    isSwapLike: Boolean(row.is_swap_like)
+    isSwapLike: Boolean(row.is_swap_like),
+    rawPayload: String(row.raw_payload)
   }));
+}
+
+export function upsertTradeCandidates(candidates: Omit<TradeCandidate, "id" | "createdAt" | "updatedAt">[]) {
+  const statement = getDb().prepare(
+    `INSERT INTO trade_candidates
+      (id, wallet_address, chain_id, chain_name, hash, status, confidence, side, token_in_asset, token_in_amount,
+       token_in_address, token_out_asset, token_out_amount, token_out_address, reason, transfer_count, source_timestamp,
+       created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(wallet_address, chain_id, hash) DO UPDATE SET
+       chain_name = excluded.chain_name,
+       status = excluded.status,
+       confidence = excluded.confidence,
+       side = excluded.side,
+       token_in_asset = excluded.token_in_asset,
+       token_in_amount = excluded.token_in_amount,
+       token_in_address = excluded.token_in_address,
+       token_out_asset = excluded.token_out_asset,
+       token_out_amount = excluded.token_out_amount,
+       token_out_address = excluded.token_out_address,
+       reason = excluded.reason,
+       transfer_count = excluded.transfer_count,
+       source_timestamp = excluded.source_timestamp,
+       updated_at = excluded.updated_at`
+  );
+  const db = getDb();
+  db.exec("BEGIN");
+  try {
+    for (const candidate of candidates) {
+      const timestamp = now();
+      statement.run(
+        randomUUID(),
+        candidate.walletAddress,
+        candidate.chainId,
+        candidate.chainName,
+        candidate.hash,
+        candidate.status,
+        candidate.confidence,
+        candidate.side,
+        candidate.tokenInAsset,
+        candidate.tokenInAmount,
+        candidate.tokenInAddress,
+        candidate.tokenOutAsset,
+        candidate.tokenOutAmount,
+        candidate.tokenOutAddress,
+        candidate.reason,
+        candidate.transferCount,
+        candidate.sourceTimestamp,
+        timestamp,
+        timestamp
+      );
+    }
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+}
+
+export function listTradeCandidates(walletAddress: string): TradeCandidate[] {
+  return (getDb()
+    .prepare(
+      `SELECT * FROM trade_candidates
+       WHERE wallet_address = ?
+       ORDER BY COALESCE(NULLIF(source_timestamp, ''), updated_at) DESC
+       LIMIT 100`
+    )
+    .all(walletAddress) as Row[]).map(rowToTradeCandidate);
+}
+
+export function getTradeCandidate(id: string): TradeCandidate | null {
+  const row = getDb().prepare("SELECT * FROM trade_candidates WHERE id = ?").get(id) as Row | undefined;
+  return row ? rowToTradeCandidate(row) : null;
+}
+
+export function updateTradeCandidateStatus(
+  id: string,
+  status: TradeCandidate["status"],
+  reason?: string
+) {
+  const result = getDb()
+    .prepare(
+      `UPDATE trade_candidates
+       SET status = ?, reason = COALESCE(?, reason), updated_at = ?
+       WHERE id = ?`
+    )
+    .run(status, reason ?? null, now(), id);
+  return Number(result.changes ?? 0);
 }
 
 function rowToToken(row: Row): Token {
@@ -288,20 +473,6 @@ function rowToToken(row: Row): Token {
   };
 }
 
-function rowToPosition(row: Row): Position {
-  return {
-    tokenAddress: String(row.token_address),
-    symbol: String(row.symbol),
-    name: String(row.name),
-    decimals: Number(row.decimals),
-    quantity: Number(row.quantity),
-    averageEntryUsd: Number(row.average_entry_usd),
-    costBasisUsd: Number(row.cost_basis_usd),
-    realizedPnlUsd: Number(row.realized_pnl_usd),
-    feesPaidUsd: Number(row.fees_paid_usd),
-    updatedAt: String(row.updated_at)
-  };
-}
 
 function rowToTrade(row: Row): Trade {
   return {
@@ -320,4 +491,60 @@ function rowToTrade(row: Row): Trade {
     quoteSnapshot: String(row.quote_snapshot),
     createdAt: String(row.created_at)
   };
+}
+
+function rowToTradeCandidate(row: Row): TradeCandidate {
+  return {
+    id: String(row.id),
+    walletAddress: String(row.wallet_address),
+    chainId: Number(row.chain_id),
+    chainName: String(row.chain_name),
+    hash: String(row.hash),
+    status: String(row.status) as TradeCandidate["status"],
+    confidence: Number(row.confidence),
+    side: String(row.side) as TradeCandidate["side"],
+    tokenInAsset: String(row.token_in_asset),
+    tokenInAddress: String(row.token_in_address),
+    tokenInAmount: Number(row.token_in_amount),
+    tokenOutAsset: String(row.token_out_asset),
+    tokenOutAddress: String(row.token_out_address),
+    tokenOutAmount: Number(row.token_out_amount),
+    reason: String(row.reason),
+    transferCount: Number(row.transfer_count),
+    sourceTimestamp: String(row.source_timestamp || row.updated_at),
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at)
+  };
+}
+
+function normalizeCopySettings(value: unknown): CopySettings {
+  const input = value && typeof value === "object" ? (value as Partial<CopySettings>) : {};
+  return {
+    mode: input.mode === "percentOfSource" ? "percentOfSource" : "fixedUsd",
+    fixedUsd: boundedNumber(input.fixedUsd, DEFAULT_COPY_SETTINGS.fixedUsd, 1, 1_000_000),
+    percentOfSource: boundedNumber(input.percentOfSource, DEFAULT_COPY_SETTINGS.percentOfSource, 1, 100),
+    maxTradeUsd: boundedNumber(input.maxTradeUsd, DEFAULT_COPY_SETTINGS.maxTradeUsd, 1, 1_000_000),
+    slippageCapBps: boundedNumber(input.slippageCapBps, DEFAULT_COPY_SETTINGS.slippageCapBps, 0, 5000),
+    gasBufferBps: boundedNumber(input.gasBufferBps, DEFAULT_COPY_SETTINGS.gasBufferBps, 0, 10000),
+    insufficientCashBehavior: input.insufficientCashBehavior === "cap" ? "cap" : "skip",
+    allowlist: normalizeTokenList(input.allowlist),
+    blocklist: normalizeTokenList(input.blocklist)
+  };
+}
+
+function boundedNumber(value: unknown, fallback: number, min: number, max: number) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  return Math.min(max, Math.max(min, number));
+}
+
+function normalizeTokenList(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return Array.from(
+    new Set(
+      value
+        .map((item) => String(item).trim().toLowerCase())
+        .filter((item) => /^0x[a-f0-9]{40}$/.test(item))
+    )
+  );
 }
