@@ -1,7 +1,24 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { TOKENS } from "./constants";
-import { normalizeAlchemyTransfers } from "./external";
+import { normalizeAlchemyTransfers, resolveTokenFromAlchemy } from "./external";
 import { getZeroxPrice, normalizeZeroxPriceQuote, summarizeZeroxIssues, ZEROX_PRICE_ENDPOINT } from "./zerox";
+
+const originalAlchemyApiKey = process.env.ALCHEMY_API_KEY;
+const originalBaseAlchemyApiKey = process.env.BASE_ALCHEMY_API_KEY;
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  if (originalAlchemyApiKey === undefined) {
+    delete process.env.ALCHEMY_API_KEY;
+  } else {
+    process.env.ALCHEMY_API_KEY = originalAlchemyApiKey;
+  }
+  if (originalBaseAlchemyApiKey === undefined) {
+    delete process.env.BASE_ALCHEMY_API_KEY;
+  } else {
+    process.env.BASE_ALCHEMY_API_KEY = originalBaseAlchemyApiKey;
+  }
+});
 
 describe("summarizeZeroxIssues", () => {
   it("surfaces no liquidity as a specific warning", () => {
@@ -152,6 +169,42 @@ describe("getZeroxPrice", () => {
   });
 });
 
+describe("resolveTokenFromAlchemy", () => {
+  it("falls back to ERC-20 contract calls when Alchemy metadata is incomplete", async () => {
+    process.env.ALCHEMY_API_KEY = "eth-key";
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse({ result: { name: "Token" } }));
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ result: dynamicStringResult("TKN") }))
+      .mockResolvedValueOnce(jsonResponse({ result: "0x" + 18n.toString(16).padStart(64, "0") }))
+      .mockResolvedValueOnce(jsonResponse({ result: dynamicStringResult("Token") }));
+
+    const token = await resolveTokenFromAlchemy("0x0000000000000000000000000000000000001000", 1);
+
+    expect(token).toMatchObject({
+      address: "0x0000000000000000000000000000000000001000",
+      symbol: "TKN",
+      name: "Token",
+      decimals: 18
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it("uses the Base Alchemy key for Base token metadata fallback", async () => {
+    process.env.ALCHEMY_API_KEY = "eth-key";
+    process.env.BASE_ALCHEMY_API_KEY = "base-key";
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(jsonResponse({ result: { symbol: "BASE" } }));
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ result: dynamicStringResult("BASE") }))
+      .mockResolvedValueOnce(jsonResponse({ result: "0x" + 18n.toString(16).padStart(64, "0") }))
+      .mockResolvedValueOnce(jsonResponse({ result: dynamicStringResult("Base Token") }));
+
+    await resolveTokenFromAlchemy("0x0000000000000000000000000000000000002000", 8453);
+
+    expect(String(fetchMock.mock.calls[0][0])).toContain("/base-key");
+    expect(String(fetchMock.mock.calls[1][0])).toContain("/base-key");
+  });
+});
+
 describe("normalizeAlchemyTransfers", () => {
   const wallet = "0x6332685fb57d440b9812cc5f625376f8bee6eba1";
 
@@ -245,3 +298,17 @@ describe("normalizeAlchemyTransfers", () => {
     expect(activity.map((item) => item.chainName)).toEqual(["Ethereum", "Base"]);
   });
 });
+
+function jsonResponse(payload: unknown) {
+  return {
+    ok: true,
+    json: async () => payload
+  } as Response;
+}
+
+function dynamicStringResult(value: string) {
+  const encoded = Array.from(value)
+    .map((char) => char.charCodeAt(0).toString(16).padStart(2, "0"))
+    .join("");
+  return `0x${"20".padStart(64, "0")}${value.length.toString(16).padStart(64, "0")}${encoded.padEnd(64, "0")}`;
+}

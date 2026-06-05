@@ -1,6 +1,7 @@
 import { ETH_CHAIN_ID, getChainTokens } from "./constants";
 import { fromBaseUnits, normalizeAddress, toBaseUnits } from "./money";
 import type { QuotePreview, Token, TradeSide, WalletActivity } from "./types";
+import { assertUsableUniswapQuote, getUniswapQuote } from "./uniswap";
 import { assertUsableZeroxQuote, getZeroxPrice } from "./zerox";
 
 type AlchemyTransfer = {
@@ -22,6 +23,22 @@ const ALCHEMY_ACTIVITY_CHAINS = [
   { id: 8453, name: "Base", subdomain: "base-mainnet", envPrefix: "BASE" }
 ] as const;
 
+type SwapQuote = {
+  provider: "0x" | "Uniswap";
+  endpoint: string;
+  chainId: number;
+  sellToken: string;
+  buyToken: string;
+  sellAmount: string;
+  buyAmount: string;
+  gasUnits?: number;
+  gasPriceWei?: number;
+  gasUsd?: number;
+  dexFeeUsd: number;
+  warnings: string[];
+  rawResponse: unknown;
+};
+
 export async function resolveTokenFromAlchemy(address: string, chainId = ETH_CHAIN_ID): Promise<Token> {
   const tokenAddress = normalizeAddress(address);
   const chainTokens = getChainTokens(chainId);
@@ -38,7 +55,7 @@ export async function resolveTokenFromAlchemy(address: string, chainId = ETH_CHA
     };
   }
 
-  const apiKey = process.env.ALCHEMY_API_KEY;
+  const apiKey = getAlchemyApiKey(chainId);
   if (!apiKey) {
     throw new Error("ALCHEMY_API_KEY is required to resolve token metadata.");
   }
@@ -67,15 +84,20 @@ export async function resolveTokenFromAlchemy(address: string, chainId = ETH_CHA
   if (payload.error) {
     throw new Error(payload.error.message ?? "Alchemy returned a token metadata error.");
   }
-  if (!payload.result?.decimals || !payload.result.symbol) {
-    throw new Error("Token metadata is incomplete or unavailable.");
+  const metadata = payload.result;
+  if (!hasCompleteTokenMetadata(metadata)) {
+    const fallback = await resolveTokenFromErc20Calls(tokenAddress, chainId, apiKey);
+    if (!fallback) {
+      throw new Error("Token metadata is incomplete or unavailable.");
+    }
+    return fallback;
   }
 
   return {
     address: tokenAddress,
-    symbol: payload.result.symbol,
-    name: payload.result.name || payload.result.symbol,
-    decimals: payload.result.decimals,
+    symbol: metadata.symbol,
+    name: metadata.name || metadata.symbol,
+    decimals: metadata.decimals,
     createdAt: new Date().toISOString()
   };
 }
@@ -117,26 +139,24 @@ export async function buildQuotePreview(input: {
 
   const chainId = input.chainId ?? ETH_CHAIN_ID;
   const chainTokens = getChainTokens(chainId);
-  const quote =
+  const sellToken = input.side === "buy" ? chainTokens.usdc.address : input.token.address;
+  const buyToken = input.side === "buy" ? input.token.address : chainTokens.usdc.address;
+  const sellAmount =
     input.side === "buy"
-      ? await getZeroxPrice({
-          chainId,
-          sellToken: chainTokens.usdc.address,
-          buyToken: input.token.address,
-          sellAmount: toBaseUnits(input.usdAmount ?? 0, chainTokens.usdc.decimals)
-        })
-      : await getZeroxPrice({
-          chainId,
-          sellToken: input.token.address,
-          buyToken: chainTokens.usdc.address,
-          sellAmount: toBaseUnits(input.tokenQuantity ?? 0, input.token.decimals)
-        });
-
-  assertUsableZeroxQuote(quote, input.side);
+      ? toBaseUnits(input.usdAmount ?? 0, chainTokens.usdc.decimals)
+      : toBaseUnits(input.tokenQuantity ?? 0, input.token.decimals);
+  const quote = await getBestSwapQuote({
+    chainId,
+    side: input.side,
+    sellToken,
+    buyToken,
+    sellAmount,
+    slippageBps: input.slippageBps
+  });
 
   const ethUsd = await getNativeUsdPrice(chainId);
-  const gasEth = (quote.gasUnits * quote.gasPriceWei) / 1e18;
-  const gasUsd = gasEth * ethUsd * (1 + input.gasBufferBps / 10_000);
+  const gasEth = ((quote.gasUnits ?? 0) * (quote.gasPriceWei ?? 0)) / 1e18;
+  const gasUsd = (quote.gasUsd ?? gasEth * ethUsd) * (1 + input.gasBufferBps / 10_000);
   const dexFeeUsd = quote.dexFeeUsd;
   const warnings = [...quote.warnings];
   const snapshotBase = {
@@ -152,8 +172,9 @@ export async function buildQuotePreview(input: {
       ethUsd,
       slippageBps: input.slippageBps,
       gasBufferBps: input.gasBufferBps,
-      gasUnits: quote.gasUnits,
-      gasPriceWei: quote.gasPriceWei,
+      gasUnits: quote.gasUnits ?? 0,
+      gasPriceWei: quote.gasPriceWei ?? 0,
+      gasUsd: quote.gasUsd,
       dexFeeUsd
     },
     normalizedQuote: withoutRawResponse(quote),
@@ -343,6 +364,124 @@ function transferKey(transfer: AlchemyTransfer) {
 function normalizeOptionalAddress(address?: string | null) {
   const value = (address ?? "").trim();
   return /^0x[a-fA-F0-9]{40}$/.test(value) ? value.toLowerCase() : "";
+}
+
+async function getBestSwapQuote(input: {
+  chainId: number;
+  side: TradeSide;
+  sellToken: string;
+  buyToken: string;
+  sellAmount: string;
+  slippageBps: number;
+}): Promise<SwapQuote> {
+  let zeroxError: unknown = null;
+  try {
+    const quote = await getZeroxPrice(input);
+    assertUsableZeroxQuote(quote, input.side);
+    return quote;
+  } catch (error) {
+    zeroxError = error;
+  }
+
+  if (!process.env.UNISWAP_API_KEY) {
+    throw zeroxError;
+  }
+
+  const quote = await getUniswapQuote(input);
+  assertUsableUniswapQuote(quote);
+  return {
+    ...quote,
+    warnings: [
+      `0x quote unavailable; using Uniswap fallback. ${zeroxError instanceof Error ? zeroxError.message : ""}`.trim(),
+      ...quote.warnings
+    ]
+  };
+}
+
+function getAlchemyApiKey(chainId: number) {
+  if (chainId === 8453) return process.env.BASE_ALCHEMY_API_KEY || process.env.ALCHEMY_API_KEY;
+  return process.env.ALCHEMY_API_KEY;
+}
+
+function hasCompleteTokenMetadata(
+  metadata: { name?: string; symbol?: string; decimals?: number } | undefined
+): metadata is { name?: string; symbol: string; decimals: number } {
+  return Boolean(metadata?.symbol && Number.isFinite(metadata.decimals));
+}
+
+async function resolveTokenFromErc20Calls(tokenAddress: string, chainId: number, apiKey: string): Promise<Token | null> {
+  const [symbol, decimals, name] = await Promise.all([
+    callErc20String(tokenAddress, "0x95d89b41", chainId, apiKey),
+    callErc20Decimals(tokenAddress, chainId, apiKey),
+    callErc20String(tokenAddress, "0x06fdde03", chainId, apiKey)
+  ]);
+
+  if (!symbol || !Number.isFinite(decimals)) return null;
+
+  return {
+    address: tokenAddress,
+    symbol,
+    name: name || symbol,
+    decimals,
+    createdAt: new Date().toISOString()
+  };
+}
+
+async function callErc20Decimals(tokenAddress: string, chainId: number, apiKey: string) {
+  const result = await callErc20(tokenAddress, "0x313ce567", chainId, apiKey);
+  if (!result) return NaN;
+  const decimals = Number(BigInt(result));
+  return Number.isFinite(decimals) ? decimals : NaN;
+}
+
+async function callErc20String(tokenAddress: string, data: string, chainId: number, apiKey: string) {
+  const result = await callErc20(tokenAddress, data, chainId, apiKey);
+  return result ? decodeAbiStringOrBytes32(result) : "";
+}
+
+async function callErc20(tokenAddress: string, data: string, chainId: number, apiKey: string) {
+  const chainTokens = getChainTokens(chainId);
+  const response = await fetch(`https://${chainTokens.alchemySubdomain}.g.alchemy.com/v2/${apiKey}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      id: 1,
+      jsonrpc: "2.0",
+      method: "eth_call",
+      params: [{ to: tokenAddress, data }, "latest"]
+    }),
+    cache: "no-store"
+  });
+
+  if (!response.ok) return "";
+  const payload = (await response.json()) as { result?: string; error?: unknown };
+  if (payload.error || !payload.result || payload.result === "0x") return "";
+  return payload.result;
+}
+
+function decodeAbiStringOrBytes32(result: string) {
+  const hex = result.startsWith("0x") ? result.slice(2) : result;
+  if (!hex) return "";
+
+  const dynamic = decodeDynamicAbiString(hex);
+  if (dynamic) return dynamic;
+
+  return hexToAscii(hex).replace(/\0+$/g, "").trim();
+}
+
+function decodeDynamicAbiString(hex: string) {
+  if (hex.length < 128) return "";
+  const offset = Number.parseInt(hex.slice(0, 64), 16);
+  if (!Number.isFinite(offset) || offset < 32) return "";
+  const lengthStart = offset * 2;
+  const length = Number.parseInt(hex.slice(lengthStart, lengthStart + 64), 16);
+  if (!Number.isFinite(length) || length <= 0) return "";
+  return hexToAscii(hex.slice(lengthStart + 64, lengthStart + 64 + length * 2)).trim();
+}
+
+function hexToAscii(hex: string) {
+  const bytes = hex.match(/.{1,2}/g) ?? [];
+  return bytes.map((byte) => String.fromCharCode(Number.parseInt(byte, 16))).join("");
 }
 
 function withoutRawResponse<T extends { rawResponse: unknown }>(quote: T) {

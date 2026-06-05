@@ -1,13 +1,15 @@
 import { NextResponse } from "next/server";
 import { applyTradeToState } from "@/lib/accounting";
-import { classifyCopyError, sizeCopyTrade } from "@/lib/copy";
+import { calculateCashCappedBuyUsd, classifyCopyError, sizeCopyTrade } from "@/lib/copy";
 import { buildQuotePreview, getNativeUsdPrice, resolveTokenFromAlchemy } from "@/lib/external";
+import type { Token, TradeCandidate } from "@/lib/types";
 import {
   getCopySettings,
   getPortfolio,
   getPosition,
   getToken,
   getTradeCandidate,
+  getWalletActivityTokenHint,
   recordTrade,
   updateTradeCandidateCopyResult,
   updateTradeCandidateStatus,
@@ -31,8 +33,8 @@ export async function POST(_request: Request, context: { params: Promise<{ id: s
     const position = tokenAddress ? getPosition(tokenAddress) : null;
     const nativeUsd = await getNativeUsdPrice(candidate.chainId);
     const sized = sizeCopyTrade({ candidate, settings, nativeUsd, position });
-    const token = getToken(sized.tokenAddress) ?? upsertToken(await resolveTokenFromAlchemy(sized.tokenAddress, candidate.chainId));
-    const preview = await buildQuotePreview({
+    const token = getToken(sized.tokenAddress) ?? upsertToken(await resolveCopyToken(candidate, sized.tokenAddress));
+    let preview = await buildQuotePreview({
       side: sized.side,
       token,
       chainId: candidate.chainId,
@@ -43,11 +45,43 @@ export async function POST(_request: Request, context: { params: Promise<{ id: s
     });
 
     const portfolio = getPortfolio();
-    if (preview.side === "buy" && portfolio.cashUsd < preview.totalCostUsd) {
+    let cashCap: { fromUsd: number; toUsd: number } | null = null;
+    if (sized.side === "buy" && preview.side === "buy" && portfolio.cashUsd < preview.totalCostUsd) {
       if (settings.insufficientCashBehavior === "skip") {
         throw new Error("Insufficient paper cash for this copy after fees.");
       }
-      throw new Error("Insufficient paper cash capping is not available until fee-aware re-quoting is added.");
+
+      let cappedUsd = calculateCashCappedBuyUsd({
+        cashUsd: portfolio.cashUsd,
+        requestedUsd: sized.usdAmount,
+        gasUsd: preview.gasUsd,
+        dexFeeUsd: preview.dexFeeUsd,
+        slippageBps: settings.slippageCapBps
+      });
+
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        if (!Number.isFinite(cappedUsd) || cappedUsd <= 0) {
+          throw new Error("Insufficient paper cash for this copy after fees.");
+        }
+
+        preview = await buildQuotePreview({
+          side: "buy",
+          token,
+          chainId: candidate.chainId,
+          usdAmount: cappedUsd,
+          slippageBps: settings.slippageCapBps,
+          gasBufferBps: settings.gasBufferBps
+        });
+
+        if (portfolio.cashUsd >= preview.totalCostUsd) break;
+        cappedUsd *= Math.max(0.1, (portfolio.cashUsd / preview.totalCostUsd) * 0.995);
+      }
+
+      if (portfolio.cashUsd < preview.totalCostUsd) {
+        throw new Error("Insufficient paper cash after fee-aware cap re-quoting.");
+      }
+
+      cashCap = { fromUsd: sized.usdAmount, toUsd: preview.notionalUsd };
     }
 
     const next = applyTradeToState({ portfolio, position, preview });
@@ -63,6 +97,7 @@ export async function POST(_request: Request, context: { params: Promise<{ id: s
         sourceTimestamp: candidate.sourceTimestamp,
         sourceSide: candidate.side,
         sourceNotionalUsd: sized.sourceNotionalUsd,
+        cashCap,
         copySettings: settings
       }
     };
@@ -82,7 +117,11 @@ export async function POST(_request: Request, context: { params: Promise<{ id: s
     });
 
     const totalFeesUsd = preview.gasUsd + preview.slippageUsd + preview.dexFeeUsd;
-    const statusReason = `Copied into paper portfolio as trade ${tradeId}.`;
+    const statusReason = cashCap
+      ? `Copied with cash cap: resized from $${cashCap.fromUsd.toFixed(2)} to $${cashCap.toUsd.toFixed(
+          2
+        )} after fees as trade ${tradeId}.`
+      : `Copied into paper portfolio as trade ${tradeId}.`;
     updateTradeCandidateStatus(candidate.id, "copied", statusReason);
     updateTradeCandidateCopyResult({
       id: candidate.id,
@@ -108,6 +147,7 @@ export async function POST(_request: Request, context: { params: Promise<{ id: s
         totalFeesUsd,
         totalCostUsd: preview.side === "buy" ? preview.totalCostUsd : preview.totalCostUsd,
         sellProceedsUsd: preview.sellProceedsUsd,
+        cashCap,
         tradeId
       }
     });
@@ -118,5 +158,25 @@ export async function POST(_request: Request, context: { params: Promise<{ id: s
       { error: reason, copyResult: { candidateId: id, status: "failed", bucket, reason } },
       { status: 400 }
     );
+  }
+}
+
+async function resolveCopyToken(candidate: TradeCandidate, tokenAddress: string): Promise<Omit<Token, "createdAt">> {
+  try {
+    return await resolveTokenFromAlchemy(tokenAddress, candidate.chainId);
+  } catch (error) {
+    const hint = getWalletActivityTokenHint({
+      walletAddress: candidate.walletAddress,
+      chainId: candidate.chainId,
+      hash: candidate.hash,
+      tokenAddress
+    });
+    if (!hint) throw error;
+    return {
+      address: tokenAddress.toLowerCase(),
+      symbol: hint.symbol,
+      name: hint.name,
+      decimals: hint.decimals
+    };
   }
 }

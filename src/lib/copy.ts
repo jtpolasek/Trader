@@ -104,6 +104,25 @@ export function sizeCopyTrade(input: {
   };
 }
 
+export function calculateCashCappedBuyUsd(input: {
+  cashUsd: number;
+  requestedUsd: number;
+  gasUsd: number;
+  dexFeeUsd: number;
+  slippageBps: number;
+  safetyBufferBps?: number;
+}) {
+  const safetyBufferBps = input.safetyBufferBps ?? 25;
+  const fixedFeesUsd = Math.max(0, input.gasUsd) + Math.max(0, input.dexFeeUsd);
+  const spendableBeforeSlippage = input.cashUsd - fixedFeesUsd;
+  if (!Number.isFinite(spendableBeforeSlippage) || spendableBeforeSlippage <= 0) return 0;
+
+  const slippageMultiplier = 1 + Math.max(0, input.slippageBps) / 10_000;
+  const bufferedUsd = (spendableBeforeSlippage / slippageMultiplier) * (1 - safetyBufferBps / 10_000);
+  if (!Number.isFinite(bufferedUsd) || bufferedUsd <= 0) return 0;
+  return Math.min(input.requestedUsd, bufferedUsd);
+}
+
 export function describeCopyError(error: unknown) {
   return classifyCopyError(error).reason;
 }

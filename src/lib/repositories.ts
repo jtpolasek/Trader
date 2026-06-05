@@ -375,6 +375,31 @@ export function listWalletActivity(walletAddress: string): WalletActivity[] {
   }));
 }
 
+export function getWalletActivityTokenHint(input: {
+  walletAddress: string;
+  chainId: number;
+  hash: string;
+  tokenAddress: string;
+}): { symbol: string; name: string; decimals: number } | null {
+  const row = getDb()
+    .prepare(
+      `SELECT asset, raw_payload
+       FROM wallet_activity
+       WHERE wallet_address = ?
+         AND chain_id = ?
+         AND hash = ?
+         AND lower(contract_address) = lower(?)
+       LIMIT 1`
+    )
+    .get(input.walletAddress, input.chainId, input.hash, input.tokenAddress) as Row | undefined;
+  if (!row) return null;
+
+  const symbol = String(row.asset || "").trim();
+  const decimals = parseRawPayloadDecimals(String(row.raw_payload || ""));
+  if (!symbol || symbol.toLowerCase() === "unknown" || !Number.isFinite(decimals)) return null;
+  return { symbol, name: symbol, decimals };
+}
+
 export function upsertTradeCandidates(candidates: Omit<TradeCandidate, "id" | "createdAt" | "updatedAt">[]) {
   const statement = getDb().prepare(
     `INSERT INTO trade_candidates
@@ -558,6 +583,18 @@ function normalizeCopySettings(value: unknown): CopySettings {
     allowlist: normalizeTokenList(input.allowlist),
     blocklist: normalizeTokenList(input.blocklist)
   };
+}
+
+function parseRawPayloadDecimals(rawPayload: string) {
+  try {
+    const payload = JSON.parse(rawPayload) as { rawContract?: { decimal?: unknown } };
+    const value = payload.rawContract?.decimal;
+    if (typeof value === "number") return value;
+    if (typeof value !== "string" || !value.trim()) return NaN;
+    return value.startsWith("0x") ? Number.parseInt(value, 16) : Number.parseInt(value, 10);
+  } catch {
+    return NaN;
+  }
 }
 
 function boundedNumber(value: unknown, fallback: number, min: number, max: number) {

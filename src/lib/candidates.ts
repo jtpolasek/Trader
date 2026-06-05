@@ -12,7 +12,7 @@ type TransferPair = {
 
 export function deriveTradeCandidates(activity: WalletActivity[]): CandidateDraft[] {
   const groups = new Map<string, WalletActivity[]>();
-  for (const item of activity) {
+  for (const item of activity.map(hydrateActivityFromRawPayload)) {
     const key = `${item.chainId}|${item.hash}`;
     groups.set(key, [...(groups.get(key) ?? []), item]);
   }
@@ -216,4 +216,54 @@ function describeAmbiguousPair(side: TradeSide, tokenInAsset: string, tokenOutAs
   return `Multiple inbound or outbound transfers were found; selected the likely sell of ${
     tokenInAsset || "the sent token"
   } into ${tokenOutAsset || "cash/native asset"}. Review before copying.`;
+}
+
+function hydrateActivityFromRawPayload(item: WalletActivity): WalletActivity {
+  const raw = parseRawAlchemyTransfer(item.rawPayload);
+  if (!raw) return item;
+
+  const rawAsset = typeof raw.asset === "string" ? raw.asset.trim() : "";
+  const rawValue = typeof raw.value === "number" ? raw.value : Number(raw.value);
+  const rawContract =
+    raw.rawContract && typeof raw.rawContract === "object" && !Array.isArray(raw.rawContract)
+      ? (raw.rawContract as Record<string, unknown>)
+      : null;
+  const rawAddress = normalizeOptionalAddress(
+    typeof rawContract?.address === "string" ? rawContract.address : undefined
+  );
+  const rawTimestamp =
+    raw.metadata && typeof raw.metadata === "object" && !Array.isArray(raw.metadata)
+      ? (raw.metadata as Record<string, unknown>).blockTimestamp
+      : "";
+
+  return {
+    ...item,
+    asset: isMissingAsset(item.asset) && rawAsset ? rawAsset : item.asset,
+    contractAddress: item.contractAddress || rawAddress,
+    value: item.value || (Number.isFinite(rawValue) ? rawValue : item.value),
+    timestamp:
+      Number.isFinite(Date.parse(item.timestamp)) || typeof rawTimestamp !== "string" || !rawTimestamp
+        ? item.timestamp
+        : rawTimestamp
+  };
+}
+
+function parseRawAlchemyTransfer(rawPayload: string): Record<string, unknown> | null {
+  if (!rawPayload) return null;
+  try {
+    const parsed = JSON.parse(rawPayload) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+function isMissingAsset(asset: string) {
+  const normalized = normalizeAsset(asset);
+  return !normalized || normalized === "UNKNOWN";
+}
+
+function normalizeOptionalAddress(address?: string) {
+  const value = (address ?? "").trim();
+  return /^0x[a-fA-F0-9]{40}$/.test(value) ? value.toLowerCase() : "";
 }

@@ -53,6 +53,7 @@ This is enough to test the workflow, but it should not be treated as reliable Pn
 ## Completed Foundation
 
 - 0x price calls live in a dedicated typed `src/lib/zerox.ts` client.
+- Uniswap quotes live in a dedicated typed `src/lib/uniswap.ts` client and are used as a fallback when 0x cannot price a route and `UNISWAP_API_KEY` is configured.
 - 0x v2 `/price` responses are normalized before preview/accounting code consumes them.
 - Preview and executed trade snapshots store both normalized quote metadata and the raw 0x response.
 - Quote previews now expose endpoint, chain ID, token pair, input amount, gas assumptions, slippage assumptions, fee assumptions, warnings, and raw 0x response details in the UI.
@@ -72,7 +73,12 @@ This is enough to test the workflow, but it should not be treated as reliable Pn
 - Candidate copy responses now include structured success/failure details for UI display.
 - Candidate cards can show copied trade details including trade ID, paper side, token quantity, notional, and fees, or a specific failure reason.
 - Candidate copy failures now include a structured bucket for clearer triage: no paper position, missing token address, no liquidity/route, insufficient cash, blocked token, unsupported pattern, metadata, already copied, or unknown.
+- Token metadata resolution now prefers chain-specific Alchemy keys for Base and falls back to direct ERC-20 `symbol()`, `decimals()`, and `name()` calls when `alchemy_getTokenMetadata` is incomplete.
+- Candidate copy can also recover token symbol/decimals from cached wallet activity `raw_payload` when both metadata lookup and direct ERC-20 calls are incomplete.
 - Candidate copy attempts now persist separately from parser status as `last_copy_*` fields; failed copy attempts no longer overwrite a decoded/review candidate's status, while successful copies still finalize the candidate as `copied`.
+- Failed candidate copy attempts can now be retried directly from the candidate card; the button switches to "Retry" and stale failure details are hidden while the new attempt is running.
+- Copy settings `insufficientCashBehavior: "cap"` now performs fee-aware buy re-quoting: if the first copied buy exceeds available cash after gas/slippage/0x fees, the route computes an affordable notional, re-quotes it, and only executes when the final all-in total fits cash.
+- The manual trade ticket now includes an Ethereum/Base chain selector and sends `chainId` through preview/execute, so Base token contracts are no longer resolved as Ethereum by default.
 - Watched wallet creation now accepts either a raw `0x...` address or a GMGN wallet URL and extracts the address automatically.
 - Tiny token prices now use a price-specific formatter so average entry and trade-history prices do not round down to `$0.00`.
 - Open positions can now be manually marked as a total loss when liquidity is gone or 0x cannot find a usable sell route.
@@ -112,8 +118,7 @@ Do not rely on 0x Trade Analytics for arbitrary GMGN wallets. It only returns tr
    - Keep copy actions manual until candidate confidence is much stronger.
 
 3. Improve copy execution ergonomics.
-   - Consider a retry/copy-again path for failed candidates after settings change.
-   - Add a better "cap insufficient cash" flow with fee-aware re-quoting.
+   - Continue polishing retry/copy-again feedback as more real failure cases appear.
 
 4. Ledger accounting hardening and cleanup (core shipped; these are follow-ups).
    - Retire the vestigial state now that nothing reads it: the `positions` table and the `portfolios.cash_usd` / `realized_pnl_usd` / `fees_paid_usd` running-total columns are written/seeded but never read. Drop them (or comment them as deprecated) so a future query can't accidentally read stale values. Keep `portfolios.starting_cash_usd`, which is still the ledger's baseline.

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_COPY_SETTINGS } from "./constants";
-import { classifyCopyError, describeCopyError, estimateSourceNotionalUsd, sizeCopyTrade } from "./copy";
+import { calculateCashCappedBuyUsd, classifyCopyError, describeCopyError, estimateSourceNotionalUsd, sizeCopyTrade } from "./copy";
 import type { CopySettings, Position, TradeCandidate } from "./types";
 
 const settings: CopySettings = { ...DEFAULT_COPY_SETTINGS };
@@ -159,5 +159,44 @@ describe("sizeCopyTrade", () => {
     });
 
     expect(sized).toMatchObject({ side: "sell", tokenQuantity: 5 });
+  });
+});
+
+describe("calculateCashCappedBuyUsd", () => {
+  it("reserves fixed fees, slippage, and a safety buffer", () => {
+    const capped = calculateCashCappedBuyUsd({
+      cashUsd: 100,
+      requestedUsd: 250,
+      gasUsd: 10,
+      dexFeeUsd: 2,
+      slippageBps: 100,
+      safetyBufferBps: 0
+    });
+
+    expect(capped).toBeCloseTo(87.1287, 4);
+  });
+
+  it("does not increase an already affordable request", () => {
+    expect(
+      calculateCashCappedBuyUsd({
+        cashUsd: 1000,
+        requestedUsd: 100,
+        gasUsd: 5,
+        dexFeeUsd: 0,
+        slippageBps: 50
+      })
+    ).toBe(100);
+  });
+
+  it("returns zero when fixed fees consume available cash", () => {
+    expect(
+      calculateCashCappedBuyUsd({
+        cashUsd: 5,
+        requestedUsd: 100,
+        gasUsd: 6,
+        dexFeeUsd: 0,
+        slippageBps: 50
+      })
+    ).toBe(0);
   });
 });

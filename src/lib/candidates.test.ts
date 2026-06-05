@@ -249,6 +249,73 @@ describe("deriveTradeCandidates", () => {
     expect(candidates[0].reason).toContain("missing token symbol, amount, or contract address");
   });
 
+  it("uses stored raw payloads to recover missing inbound token details", () => {
+    const candidates = deriveTradeCandidates([
+      activity({
+        category: "external",
+        asset: "ETH",
+        contractAddress: "",
+        value: 0.05,
+        fromAddress: wallet,
+        toAddress: "0xrouter",
+        timestamp: ""
+      }),
+      activity({
+        asset: "unknown",
+        contractAddress: "",
+        value: 0,
+        fromAddress: "0xrouter",
+        toAddress: wallet,
+        timestamp: "",
+        rawPayload: JSON.stringify({
+          asset: "BRETT",
+          value: 250,
+          rawContract: { address: "0x0000000000000000000000000000000000002000" },
+          metadata: { blockTimestamp: "2026-06-04T01:23:45.000Z" }
+        })
+      })
+    ]);
+
+    expect(candidates[0]).toMatchObject({
+      status: "decoded",
+      confidence: 0.9,
+      side: "buy",
+      tokenInAsset: "ETH",
+      tokenOutAsset: "BRETT",
+      tokenOutAmount: 250,
+      tokenOutAddress: "0x0000000000000000000000000000000000002000",
+      sourceTimestamp: "2026-06-04T01:23:45.000Z"
+    });
+  });
+
+  it("uses stored raw payloads to recover missing outbound token details for sells", () => {
+    const candidates = deriveTradeCandidates([
+      activity({
+        asset: "",
+        contractAddress: "",
+        value: 0,
+        fromAddress: wallet,
+        toAddress: "0xrouter",
+        rawPayload: JSON.stringify({
+          asset: "PEPE",
+          value: 1000,
+          rawContract: { address: "0x0000000000000000000000000000000000001000" }
+        })
+      }),
+      activity({ asset: "USDC", value: 45, fromAddress: "0xrouter", toAddress: wallet })
+    ]);
+
+    expect(candidates[0]).toMatchObject({
+      status: "decoded",
+      confidence: 0.9,
+      side: "sell",
+      tokenInAsset: "PEPE",
+      tokenInAmount: 1000,
+      tokenInAddress: "0x0000000000000000000000000000000000001000",
+      tokenOutAsset: "USDC"
+    });
+  });
+
   it("does not merge same hash activity across chains", () => {
     const candidates = deriveTradeCandidates([
       activity({ chainId: 1, chainName: "Ethereum", hash: "0xsame", asset: "USDC", fromAddress: wallet, toAddress: "0xrouter" }),

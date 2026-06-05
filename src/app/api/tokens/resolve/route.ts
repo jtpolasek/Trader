@@ -5,7 +5,8 @@ import { normalizeAddress } from "@/lib/money";
 import { getToken, upsertToken } from "@/lib/repositories";
 
 const schema = z.object({
-  address: z.string()
+  address: z.string(),
+  chainId: z.number().optional()
 });
 
 export async function POST(request: Request) {
@@ -15,7 +16,7 @@ export async function POST(request: Request) {
     const cached = getToken(address);
     if (cached) return NextResponse.json({ token: cached, cached: true });
 
-    const token = await resolveTokenFromAlchemy(address);
+    const token = await resolveTokenFromAlchemy(address, body.chainId);
     const saved = upsertToken(token);
     return NextResponse.json({ token: saved, cached: false });
   } catch (error) {

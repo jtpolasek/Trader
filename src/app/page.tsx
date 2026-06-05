@@ -95,6 +95,7 @@ type CopyResult = {
   totalFeesUsd?: number;
   totalCostUsd?: number;
   sellProceedsUsd?: number;
+  cashCap?: { fromUsd: number; toUsd: number } | null;
   tradeId?: string;
 };
 
@@ -106,6 +107,7 @@ type TradeSignal = {
 
 const initialTrade = {
   side: "buy" as TradeSide,
+  chainId: "8453",
   tokenAddress: "",
   usdAmount: "250",
   tokenQuantity: "",
@@ -331,6 +333,11 @@ export default function Home() {
     setBusy(`copy-${candidate.id}`);
     setError("");
     setMessage("");
+    setCopyResults((current) => {
+      const next = { ...current };
+      delete next[candidate.id];
+      return next;
+    });
     try {
       const response = await fetch(`/api/candidates/${candidate.id}/copy`, { method: "POST" });
       const payload = await response.json();
@@ -402,6 +409,7 @@ export default function Home() {
 
     return {
       side: tradeForm.side,
+      chainId: Number(tradeForm.chainId),
       tokenAddress: tradeForm.tokenAddress,
       usdAmount: tradeForm.side === "buy" ? Number(tradeForm.usdAmount) : undefined,
       tokenQuantity: tradeForm.side === "sell" ? Number(sellQuantity) : undefined,
@@ -463,7 +471,7 @@ export default function Home() {
           <div className="panel">
             <div className="row">
               <h2>Trade ticket</h2>
-              <span className="pill">0x quote</span>
+              <span className="pill">0x + Uniswap quote</span>
             </div>
             <form className="stack" onSubmit={previewTrade}>
               <div className="segmented" aria-label="Trade side">
@@ -482,6 +490,20 @@ export default function Home() {
                 ))}
               </div>
               <div className="form-grid">
+                <div className="field">
+                  <label htmlFor="tradeChain">Chain</label>
+                  <select
+                    id="tradeChain"
+                    value={tradeForm.chainId}
+                    onChange={(event) => {
+                      setPreview(null);
+                      setTradeForm({ ...tradeForm, chainId: event.target.value });
+                    }}
+                  >
+                    <option value="8453">Base</option>
+                    <option value="1">Ethereum</option>
+                  </select>
+                </div>
                 <div className="field full">
                   <label htmlFor="tokenAddress">ERC-20 contract</label>
                   <input
@@ -902,7 +924,12 @@ export default function Home() {
             ) : null}
             {candidates.length ? (
               <div className="candidate-list">
-                {candidates.slice(0, 5).map((candidate) => (
+                {candidates.slice(0, 5).map((candidate) => {
+                  const isCopying = busy === `copy-${candidate.id}`;
+                  const visibleCopyResult = isCopying
+                    ? null
+                    : copyResults[candidate.id] ?? candidateLastCopyResult(candidate);
+                  return (
                   <article className="candidate" key={candidate.id}>
                     <div className="row">
                       <div>
@@ -923,11 +950,11 @@ export default function Home() {
                         <button
                           className="button secondary"
                           onClick={() => copyCandidate(candidate)}
-                          disabled={busy === `copy-${candidate.id}`}
-                          title="Copy into paper portfolio"
+                          disabled={isCopying}
+                          title={candidateCopyButtonTitle(candidate, copyResults[candidate.id])}
                         >
-                          {busy === `copy-${candidate.id}` ? <Loader2 size={18} /> : <Send size={18} />}
-                          Copy
+                          {isCopying ? <Loader2 size={18} /> : <Send size={18} />}
+                          {candidateCopyButtonLabel(candidate, copyResults[candidate.id])}
                         </button>
                       ) : null}
                     </div>
@@ -940,11 +967,10 @@ export default function Home() {
                       <Mini label="Transfers" value={String(candidate.transferCount)} />
                       <Mini label="Side" value={candidate.side} />
                     </div>
-                    {copyResults[candidate.id] || candidateLastCopyResult(candidate) ? (
-                      <CopyResultPanel result={(copyResults[candidate.id] ?? candidateLastCopyResult(candidate)) as CopyResult} />
-                    ) : null}
+                    {visibleCopyResult ? <CopyResultPanel result={visibleCopyResult} /> : null}
                   </article>
-                ))}
+                );
+                })}
               </div>
             ) : null}
             <div className="list">
@@ -1097,6 +1123,16 @@ function candidateLastCopyResult(candidate: TradeCandidate): CopyResult | null {
     reason: candidate.lastCopyReason || (candidate.lastCopyStatus === "copied" ? "Copied into the paper portfolio." : "Copy failed."),
     tradeId: candidate.lastCopyTradeId || undefined
   };
+}
+
+function candidateCopyButtonLabel(candidate: TradeCandidate, copyResult?: CopyResult) {
+  const lastStatus = copyResult?.status ?? candidate.lastCopyStatus;
+  return lastStatus === "failed" ? "Retry" : "Copy";
+}
+
+function candidateCopyButtonTitle(candidate: TradeCandidate, copyResult?: CopyResult) {
+  const lastStatus = copyResult?.status ?? candidate.lastCopyStatus;
+  return lastStatus === "failed" ? "Retry copy into paper portfolio" : "Copy into paper portfolio";
 }
 
 function settingsToForm(settings: CopySettings | typeof DEFAULT_COPY_SETTINGS): CopySettingsForm {

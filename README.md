@@ -16,6 +16,8 @@ A local Ethereum paper trading simulator for manually tracking wallets and testi
    ALCHEMY_API_KEY=
    BASE_ALCHEMY_API_KEY=
    ZEROX_API_KEY=
+   UNISWAP_API_KEY=
+   UNISWAP_SWAPPER_ADDRESS=
    ETHERSCAN_API_KEY=
    ```
 
@@ -42,4 +44,5 @@ A local Ethereum paper trading simulator for manually tracking wallets and testi
 - This app never asks for private keys and never sends real transactions.
 - Node's built-in `node:sqlite` module is used for local SQLite storage, so Node may print an experimental SQLite warning.
 - Trade previews require `ZEROX_API_KEY`; token lookups and Ethereum wallet activity require `ALCHEMY_API_KEY`.
+- `UNISWAP_API_KEY` is optional and enables Uniswap quote fallback when 0x cannot price a route. `UNISWAP_SWAPPER_ADDRESS` is optional for quote simulation; the app uses a harmless placeholder when omitted.
 - Base wallet activity uses `BASE_ALCHEMY_API_KEY` when present, otherwise it falls back to `ALCHEMY_API_KEY`.

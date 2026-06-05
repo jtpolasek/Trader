@@ -109,6 +109,40 @@ describe("trade candidate copy results", () => {
   });
 });
 
+describe("wallet activity token hints", () => {
+  it("extracts token symbol and decimals from stored raw transfer payloads", async () => {
+    const { getWalletActivityTokenHint, insertWalletActivity, upsertWallet } = await import("./repositories");
+    upsertWallet({ address: "0xwallet", label: "Wallet", notes: "", gmgnUrl: "" });
+    insertWalletActivity([
+      {
+        walletAddress: "0xwallet",
+        chainId: 8453,
+        chainName: "Base",
+        hash: "0xhash",
+        category: "erc20",
+        asset: "TKN",
+        contractAddress: "0x0000000000000000000000000000000000000001",
+        value: 100,
+        fromAddress: "0xrouter",
+        toAddress: "0xwallet",
+        blockNum: "0x1",
+        timestamp: "2026-06-04T00:00:00.000Z",
+        isSwapLike: true,
+        rawPayload: JSON.stringify({ rawContract: { decimal: "0x12" } })
+      }
+    ]);
+
+    expect(
+      getWalletActivityTokenHint({
+        walletAddress: "0xwallet",
+        chainId: 8453,
+        hash: "0xhash",
+        tokenAddress: "0x0000000000000000000000000000000000000001"
+      })
+    ).toEqual({ symbol: "TKN", name: "TKN", decimals: 18 });
+  });
+});
+
 function seedToken(upsertToken: (input: { address: string; symbol: string; name: string; decimals: number }) => unknown) {
   const token = {
     address: "0x0000000000000000000000000000000000000001",
