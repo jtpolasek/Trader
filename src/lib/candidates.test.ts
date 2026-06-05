@@ -194,6 +194,107 @@ describe("deriveTradeCandidates", () => {
     expect(candidates[0].reason).toContain("likely buy using ETH");
   });
 
+  it("decodes the real ECHO native ETH buy from stored Alchemy payloads", () => {
+    const hash = "0x5ca252da1bb0877adfc71c7b80988423ad4c9de86d2187c86512d2d7b440296d";
+    const realWallet = "0xc5a6bd7693e41b33f7f6fd6de3d82bd8b124ad8d";
+    const candidates = deriveTradeCandidates([
+      activity({
+        walletAddress: realWallet,
+        chainId: 1,
+        chainName: "Ethereum",
+        hash,
+        category: "external",
+        asset: "ETH",
+        contractAddress: "",
+        value: 0.01,
+        fromAddress: realWallet,
+        toAddress: "0xef6fc636a63859e08ad3479fe456262eed2e5042",
+        blockNum: "0x180d43d",
+        timestamp: "2026-06-01T04:33:11.000Z",
+        rawPayload:
+          '{"blockNum":"0x180d43d","uniqueId":"0x5ca252da1bb0877adfc71c7b80988423ad4c9de86d2187c86512d2d7b440296d:external","hash":"0x5ca252da1bb0877adfc71c7b80988423ad4c9de86d2187c86512d2d7b440296d","from":"0xc5a6bd7693e41b33f7f6fd6de3d82bd8b124ad8d","to":"0xef6fc636a63859e08ad3479fe456262eed2e5042","value":0.01,"erc721TokenId":null,"erc1155Metadata":null,"tokenId":null,"asset":"ETH","category":"external","rawContract":{"value":"0x2386f26fc10000","address":null,"decimal":"0x12"},"metadata":{"blockTimestamp":"2026-06-01T04:33:11.000Z"},"chainId":1,"chainName":"Ethereum"}'
+      }),
+      activity({
+        walletAddress: realWallet,
+        chainId: 1,
+        chainName: "Ethereum",
+        hash,
+        category: "erc20",
+        asset: "ECHO",
+        contractAddress: "0xcaaca3c22141bcfa3dad3662c465bb48ab6736ee",
+        value: 339.6828751637203,
+        fromAddress: "0x000000000004444c5dc75cb358380d2e3de08a90",
+        toAddress: realWallet,
+        blockNum: "0x180d43d",
+        timestamp: "2026-06-01T04:33:11.000Z",
+        rawPayload:
+          '{"blockNum":"0x180d43d","uniqueId":"0x5ca252da1bb0877adfc71c7b80988423ad4c9de86d2187c86512d2d7b440296d:log:89","hash":"0x5ca252da1bb0877adfc71c7b80988423ad4c9de86d2187c86512d2d7b440296d","from":"0x000000000004444c5dc75cb358380d2e3de08a90","to":"0xc5a6bd7693e41b33f7f6fd6de3d82bd8b124ad8d","value":339.6828751637203,"erc721TokenId":null,"erc1155Metadata":[],"tokenId":null,"asset":"ECHO","category":"erc20","rawContract":{"value":"0x126a0bff3e90e8d911","address":"0xcaaca3c22141bcfa3dad3662c465bb48ab6736ee","decimal":"0x12"},"metadata":{"blockTimestamp":"2026-06-01T04:33:11.000Z"},"chainId":1,"chainName":"Ethereum"}'
+      })
+    ]);
+
+    expect(candidates[0]).toMatchObject({
+      status: "decoded",
+      confidence: 0.9,
+      side: "buy",
+      tokenInAsset: "ETH",
+      tokenInAmount: 0.01,
+      tokenOutAsset: "ECHO",
+      tokenOutAmount: 339.6828751637203,
+      tokenOutAddress: "0xcaaca3c22141bcfa3dad3662c465bb48ab6736ee",
+      sourceTimestamp: "2026-06-01T04:33:11.000Z"
+    });
+  });
+
+  it("keeps the real SNOWY native ETH buy review-only when the token address is missing", () => {
+    const hash = "0x01c4f37290feb54c9cf2ed651baae6839bf1644f880b65db066b9fcdc9ef1b8c";
+    const realWallet = "0x26f07199c35b4bc4e37935484d14bbdbcc9d6f9f";
+    const candidates = deriveTradeCandidates([
+      activity({
+        walletAddress: realWallet,
+        chainId: 1,
+        chainName: "Ethereum",
+        hash,
+        category: "erc20",
+        asset: "SNOWY",
+        contractAddress: "",
+        value: 85709106.87389493,
+        fromAddress: "0x88c1048ba8920a4f65ea69da472b1a7448c2ccfa",
+        toAddress: realWallet,
+        blockNum: "0x17fabd7",
+        timestamp: "2026-05-21T14:39:59.000Z",
+        rawPayload: ""
+      }),
+      activity({
+        walletAddress: realWallet,
+        chainId: 1,
+        chainName: "Ethereum",
+        hash,
+        category: "external",
+        asset: "ETH",
+        contractAddress: "",
+        value: 0.2501,
+        fromAddress: realWallet,
+        toAddress: "0x734ab9de48f6bab1f2297a34d257cd757deba6aa",
+        blockNum: "0x17fabd7",
+        timestamp: "2026-05-21T14:39:59.000Z",
+        rawPayload: ""
+      })
+    ]);
+
+    expect(candidates[0]).toMatchObject({
+      status: "candidate",
+      confidence: 0.58,
+      side: "buy",
+      tokenInAsset: "ETH",
+      tokenInAmount: 0.2501,
+      tokenOutAsset: "SNOWY",
+      tokenOutAddress: "",
+      tokenOutAmount: 85709106.87389493,
+      sourceTimestamp: "2026-05-21T14:39:59.000Z"
+    });
+    expect(candidates[0].reason).toContain("no contract address");
+  });
+
   it("skips transactions without paired transfer directions", () => {
     const candidates = deriveTradeCandidates([
       activity({ asset: "USDC", value: 50, fromAddress: wallet, toAddress: "0xrouter" })
@@ -281,6 +382,59 @@ describe("deriveTradeCandidates", () => {
       confidence: 0.9,
       side: "buy",
       tokenInAsset: "ETH",
+      tokenOutAsset: "BRETT",
+      tokenOutAmount: 250,
+      tokenOutAddress: "0x0000000000000000000000000000000000002000",
+      sourceTimestamp: "2026-06-04T01:23:45.000Z"
+    });
+  });
+
+  it("uses stored raw payloads to recover transfer direction fields", () => {
+    const candidates = deriveTradeCandidates([
+      activity({
+        category: "",
+        asset: "",
+        contractAddress: "",
+        value: 0,
+        fromAddress: "",
+        toAddress: "",
+        timestamp: "",
+        rawPayload: JSON.stringify({
+          category: "external",
+          asset: "ETH",
+          value: 0.05,
+          from: wallet,
+          to: "0x0000000000000000000000000000000000009999",
+          blockNum: "0xabc",
+          rawContract: { address: null },
+          metadata: { blockTimestamp: "2026-06-04T01:23:45.000Z" }
+        })
+      }),
+      activity({
+        asset: "",
+        contractAddress: "",
+        value: 0,
+        fromAddress: "",
+        toAddress: "",
+        timestamp: "",
+        rawPayload: JSON.stringify({
+          category: "erc20",
+          asset: "BRETT",
+          value: 250,
+          from: "0x0000000000000000000000000000000000009999",
+          to: wallet,
+          rawContract: { address: "0x0000000000000000000000000000000000002000" },
+          metadata: { blockTimestamp: "2026-06-04T01:23:45.000Z" }
+        })
+      })
+    ]);
+
+    expect(candidates[0]).toMatchObject({
+      status: "decoded",
+      confidence: 0.9,
+      side: "buy",
+      tokenInAsset: "ETH",
+      tokenInAmount: 0.05,
       tokenOutAsset: "BRETT",
       tokenOutAmount: 250,
       tokenOutAddress: "0x0000000000000000000000000000000000002000",

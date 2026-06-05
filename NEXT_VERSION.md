@@ -4,6 +4,7 @@
 
 Recent commits on `main`:
 
+- `feat: reprocess stored wallet activity candidates`
 - `feat: add dashboard trust signals`
 - `docs: update next version handoff after import/restore flow`
 - `Merge: local import/restore flow`
@@ -11,20 +12,22 @@ Recent commits on `main`:
 - `feat: add import preview and import API routes`
 - `feat: add transactional replace-all importLocalData`
 
-Current `main` / `origin/main` state: dashboard trust signals v1 is merged and pushed at
-`ca1c839 feat: add dashboard trust signals`.
-A pure helper in `src/lib/portfolioAnalytics.ts` derives win rate, fee drag, FIFO average hold time,
-open exposure, realized PnL, and best/worst realized token from the existing portfolio payload. The
-dashboard now shows a compact trust metric strip and a small "Trust signals" panel. The existing
-`/api/portfolio` response includes `analytics` so the dashboard still loads through one request.
+Current local branch state: stored wallet activity candidate reprocessing is implemented and ready
+to commit. The route `GET /api/candidates/reprocess` previews missing candidates derived from
+existing `wallet_activity`; `POST /api/candidates/reprocess` inserts only missing candidates and
+does not overwrite copied/failed or otherwise existing rows. The helper script
+`npm run reprocess:candidates` reports stored-vs-derived differences, and
+`npm run reprocess:candidates -- --apply` applies missing candidates to the local DB. The real
+`data/paper-trader.db` was reprocessed in this session: stored candidates moved from 242 to 481,
+matching all 481 currently derived candidates with `changed: 0`.
 
-Latest verification after dashboard trust signals:
+Latest verification after stored-activity reprocessing:
 
-- `npm test` passes: 11 test files, 101 tests.
+- `npm test -- repositories.test.ts route.test.ts candidateReprocess.test.ts candidates.test.ts` passes: 4 test files, 35 tests.
+- `npm test` passes: 13 test files, 110 tests.
 - `npx tsc --noEmit` passes.
-- `npm run build` passes.
-- Browser verification against `http://localhost:4317` with `agent-browser` passed: page rendered content, no Next.js error overlay, no console errors, and the "Trust signals" section was present in the interactive snapshot.
-- After merge to `main`, `npm test` passed again: 11 test files, 101 tests. `git push origin main` succeeded (`f06e8be..ca1c839`).
+- `npm run build` passes and lists `/api/candidates/reprocess`.
+- `npm run reprocess:candidates` against the real `data/paper-trader.db` reports `stored: 481`, `derived: 481`, `changed: 0`, and "No candidate differences found."
 
 Latest verification after the import/restore work:
 
@@ -33,12 +36,10 @@ Latest verification after the import/restore work:
 - `npm run build` passes (new routes `/api/import` and `/api/import/preview` listed).
 - End-to-end smoke check against the real `data/paper-trader.db`: rejection paths return the expected 400 messages (`schemaVersion 2`, missing collections, non-object); a real export → add throwaway wallet → import-the-export round-trip dropped the throwaway (wallets 4 → 3), restored all 13 trades, and `GET /api/ledger/verify` returned `ok:true`.
 
-Best next candidate for the CLI session: wallet activity parsing hardening (Build Next #2), using
-real/stored raw payload examples to tighten candidate swap inference and copy sizing around native
-ETH source trades, Base trades, and sell candidates. Good subagent split if desired: one explorer
-for fixture mining/raw payload examples, one worker for parser tests, one reviewer for copy failure
-classification/UI wording. Alternative next slice: quote reliability hardening (Build Next #1), or
-persistence ops follow-up (Build Next #6) with a paper portfolio archive workflow.
+Best next candidate for the CLI session: add a dashboard control for the stored-activity reprocess
+preview/apply route, or continue wallet activity parsing hardening with more real Base/review-only
+fixtures. Alternative next slice: quote reliability hardening (Build Next #1), or persistence ops
+follow-up (Build Next #6) with a paper portfolio archive workflow.
 
 Just completed: the local import/restore flow. A pure zod validator (`src/lib/importBundle.ts`, `parseImportBundle` + `summarizeImportBundle`) enforces `schemaVersion: 1` and strips derived fields; `importLocalData` in `repositories.ts` does a single-transaction replace-all that preserves original IDs/timestamps (so ledger verify still matches), deleting child-first and inserting parent-first under `foreign_keys = ON`. Routes `POST /api/import/preview` (summary, no write) and `POST /api/import` share the validator. The dashboard has an "Import data" button that previews → `window.confirm` summary → imports → `window.location.reload()`. Derived fields (`positions`, `candidateAttention`, `copySettings`, portfolio totals, `app`/`exportedAt`) are intentionally ignored on import; `copy_settings` rides in via the `settings` array. Spec/plan: `docs/superpowers/specs/2026-06-05-local-import-restore-design.md` and `docs/superpowers/plans/2026-06-05-local-import-restore.md`.
 
@@ -110,6 +111,10 @@ This is enough to test the workflow, but it should not be treated as reliable Pn
 - Candidate parsing now scores every watched-wallet outbound/inbound transfer pair and prefers cash/native-to-token buy shapes or token-to-cash/native sell shapes, instead of blindly choosing the largest raw transfer in each direction.
 - Native ETH source trades, Base token buys, and noisy multi-transfer sell/buy examples are covered by parser tests; ambiguous multi-transfer candidates remain manual-review instead of high-confidence decoded.
 - Noisy transactions with multiple plausible received tokens, multiple plausible sent tokens, or both buy and sell shapes now stay manual-review with lower confidence and specific review reasons.
+- Stored Alchemy raw payload hydration now recovers missing transfer direction fields (`category`, `from`, `to`, `blockNum`) in addition to token details and timestamps.
+- Real stored-payload parser fixtures cover a decoded Ethereum ECHO native-ETH buy and a review-only SNOWY native-ETH buy with no token contract address.
+- Stored wallet activity can be reprocessed into missing trade candidates without refetching wallets: `GET /api/candidates/reprocess` previews, `POST /api/candidates/reprocess` inserts only missing rows, and `npm run reprocess:candidates` / `-- --apply` provide a CLI report/apply path.
+- The real local `data/paper-trader.db` has been reprocessed so stored and derived trade candidates both total 481 with no differences.
 - Wallet activity and trade candidates now show local-time timestamps, and candidates sort by source transaction time newest first.
 - Copy settings now persist in SQLite and can be edited from the dashboard.
 - Copy settings currently include fixed-dollar mode, percent-of-source mode, max trade cap, slippage cap, gas buffer, insufficient-cash behavior, token allowlist, and token blocklist.

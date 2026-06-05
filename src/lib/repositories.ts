@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { classifyCandidateTrust } from "./candidateTrust";
+import { deriveTradeCandidates } from "./candidates";
 import { DEFAULT_COPY_SETTINGS } from "./constants";
 import { getDb } from "./db";
 import type { CopyAttemptStatus, CopySettings, LedgerEntry, Portfolio, Position, Token, Trade, TradeCandidate, TradeInput, TradeLedgerInput, Wallet, WalletActivity } from "./types";
@@ -54,6 +55,19 @@ export type LocalDataExport = {
   walletActivity: WalletActivity[];
   tradeCandidates: TradeCandidate[];
   settings: SettingExport[];
+};
+
+export type StoredActivityCandidateReprocessResult = {
+  summary: {
+    stored: number;
+    derived: number;
+    missing: number;
+    inserted: number;
+    newDecoded: number;
+    newReview: number;
+    newSkipped: number;
+  };
+  candidates: Omit<TradeCandidate, "id" | "createdAt" | "updatedAt">[];
 };
 
 const now = () => new Date().toISOString();
@@ -620,6 +634,73 @@ export function upsertTradeCandidates(candidates: Omit<TradeCandidate, "id" | "c
   }
 }
 
+export function previewStoredActivityCandidateReprocess(): StoredActivityCandidateReprocessResult {
+  const stored = listAllTradeCandidates();
+  const derived = deriveCandidatesFromStoredActivity();
+  const storedKeys = new Set(stored.map(candidateKey));
+  const missing = derived.filter((candidate) => !storedKeys.has(candidateKey(candidate)));
+  return buildStoredActivityCandidateReprocessResult({
+    candidates: missing,
+    inserted: 0,
+    stored: stored.length,
+    derived: derived.length
+  });
+}
+
+export function reprocessStoredActivityCandidates(): StoredActivityCandidateReprocessResult {
+  const preview = previewStoredActivityCandidateReprocess();
+  if (!preview.candidates.length) return preview;
+
+  const statement = getDb().prepare(
+    `INSERT OR IGNORE INTO trade_candidates
+      (id, wallet_address, chain_id, chain_name, hash, status, confidence, side, token_in_asset, token_in_amount,
+       token_in_address, token_out_asset, token_out_amount, token_out_address, reason, transfer_count, source_timestamp,
+       created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  );
+  const db = getDb();
+  let inserted = 0;
+  db.exec("BEGIN");
+  try {
+    for (const candidate of preview.candidates) {
+      const timestamp = now();
+      const result = statement.run(
+        randomUUID(),
+        candidate.walletAddress,
+        candidate.chainId,
+        candidate.chainName,
+        candidate.hash,
+        candidate.status,
+        candidate.confidence,
+        candidate.side,
+        candidate.tokenInAsset,
+        candidate.tokenInAmount,
+        candidate.tokenInAddress,
+        candidate.tokenOutAsset,
+        candidate.tokenOutAmount,
+        candidate.tokenOutAddress,
+        candidate.reason,
+        candidate.transferCount,
+        candidate.sourceTimestamp,
+        timestamp,
+        timestamp
+      );
+      inserted += Number(result.changes ?? 0);
+    }
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+
+  return buildStoredActivityCandidateReprocessResult({
+    candidates: preview.candidates,
+    inserted,
+    stored: preview.summary.stored,
+    derived: preview.summary.derived
+  });
+}
+
 export function listTradeCandidates(walletAddress: string): TradeCandidate[] {
   return (getDb()
     .prepare(
@@ -629,6 +710,51 @@ export function listTradeCandidates(walletAddress: string): TradeCandidate[] {
        LIMIT 100`
     )
     .all(walletAddress) as Row[]).map(rowToTradeCandidate);
+}
+
+function listAllTradeCandidates(): TradeCandidate[] {
+  return (getDb().prepare("SELECT * FROM trade_candidates").all() as Row[]).map(rowToTradeCandidate);
+}
+
+function deriveCandidatesFromStoredActivity(): Omit<TradeCandidate, "id" | "createdAt" | "updatedAt">[] {
+  const activity = (getDb()
+    .prepare(
+      `SELECT *
+       FROM wallet_activity
+       ORDER BY wallet_address ASC, chain_id ASC, hash ASC, timestamp ASC, id ASC`
+    )
+    .all() as Row[]).map(rowToWalletActivity);
+  const byWallet = new Map<string, WalletActivity[]>();
+  for (const item of activity) {
+    const key = item.walletAddress.toLowerCase();
+    byWallet.set(key, [...(byWallet.get(key) ?? []), item]);
+  }
+  return Array.from(byWallet.values()).flatMap((items) => deriveTradeCandidates(items));
+}
+
+function buildStoredActivityCandidateReprocessResult(input: {
+  candidates: Omit<TradeCandidate, "id" | "createdAt" | "updatedAt">[];
+  inserted: number;
+  stored: number;
+  derived: number;
+}): StoredActivityCandidateReprocessResult {
+  const { candidates } = input;
+  return {
+    summary: {
+      stored: input.stored,
+      derived: input.derived,
+      missing: candidates.length,
+      inserted: input.inserted,
+      newDecoded: candidates.filter((candidate) => candidate.status === "decoded").length,
+      newReview: candidates.filter((candidate) => candidate.status === "candidate").length,
+      newSkipped: candidates.filter((candidate) => candidate.status === "skipped").length
+    },
+    candidates
+  };
+}
+
+function candidateKey(candidate: Pick<TradeCandidate, "walletAddress" | "chainId" | "hash">) {
+  return `${candidate.walletAddress.toLowerCase()}|${candidate.chainId}|${candidate.hash.toLowerCase()}`;
 }
 
 export function getCandidateAttentionSummary(): CandidateAttentionSummary {

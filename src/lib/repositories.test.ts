@@ -167,6 +167,77 @@ describe("candidate attention summary", () => {
   });
 });
 
+describe("stored activity candidate reprocessing", () => {
+  it("previews missing candidates from stored wallet activity without writing", async () => {
+    const {
+      listTradeCandidates,
+      previewStoredActivityCandidateReprocess,
+      insertWalletActivity,
+      upsertWallet
+    } = await import("./repositories");
+    upsertWallet({ address: "0xwallet", label: "Wallet", notes: "", gmgnUrl: "" });
+    insertWalletActivity(nativeBuyActivity());
+
+    const preview = previewStoredActivityCandidateReprocess();
+
+    expect(preview.summary).toMatchObject({
+      stored: 0,
+      derived: 1,
+      missing: 1,
+      newDecoded: 1,
+      newReview: 0,
+      newSkipped: 0
+    });
+    expect(preview.candidates[0]).toMatchObject({
+      walletAddress: "0xwallet",
+      hash: "0xnativebuy",
+      status: "decoded",
+      side: "buy",
+      tokenOutAddress: "0x0000000000000000000000000000000000000001"
+    });
+    expect(listTradeCandidates("0xwallet")).toHaveLength(0);
+  });
+
+  it("inserts only missing candidates and preserves existing copied rows", async () => {
+    const {
+      listTradeCandidates,
+      reprocessStoredActivityCandidates,
+      updateTradeCandidateStatus,
+      upsertTradeCandidates,
+      insertWalletActivity,
+      upsertWallet
+    } = await import("./repositories");
+    upsertWallet({ address: "0xwallet", label: "Wallet", notes: "", gmgnUrl: "" });
+    insertWalletActivity([
+      ...nativeBuyActivity({ hash: "0xexisting" }),
+      ...nativeBuyActivity({ hash: "0xmissing", tokenOutAsset: "NEW" })
+    ]);
+    upsertTradeCandidates([candidateInput({ hash: "0xexisting" })]);
+    const existing = listTradeCandidates("0xwallet")[0];
+    updateTradeCandidateStatus(existing.id, "copied", "Copied into paper portfolio as trade trade-1.");
+
+    const result = reprocessStoredActivityCandidates();
+
+    expect(result.summary).toMatchObject({
+      stored: 1,
+      derived: 2,
+      missing: 1,
+      inserted: 1,
+      newDecoded: 1
+    });
+    const stored = listTradeCandidates("0xwallet");
+    expect(stored).toHaveLength(2);
+    expect(getCandidateByHash(stored, "0xexisting")).toMatchObject({
+      status: "copied",
+      reason: "Copied into paper portfolio as trade trade-1."
+    });
+    expect(getCandidateByHash(stored, "0xmissing")).toMatchObject({
+      status: "decoded",
+      tokenOutAsset: "NEW"
+    });
+  });
+});
+
 describe("exportLocalData", () => {
   it("exports full local simulator state for backup or handoff", async () => {
     const {
@@ -549,6 +620,45 @@ function candidateInput(overrides = {}) {
     sourceTimestamp: "2026-06-04T00:00:00.000Z",
     ...overrides
   };
+}
+
+function nativeBuyActivity(overrides: { hash?: string; tokenOutAsset?: string } = {}) {
+  const hash = overrides.hash ?? "0xnativebuy";
+  const tokenOutAsset = overrides.tokenOutAsset ?? "TKN";
+  return [
+    {
+      walletAddress: "0xwallet",
+      chainId: 1,
+      chainName: "Ethereum",
+      hash,
+      category: "external",
+      asset: "ETH",
+      contractAddress: "",
+      value: 0.01,
+      fromAddress: "0xwallet",
+      toAddress: "0xrouter",
+      blockNum: "0x1",
+      timestamp: "2026-06-04T00:00:00.000Z",
+      isSwapLike: true,
+      rawPayload: "{}"
+    },
+    {
+      walletAddress: "0xwallet",
+      chainId: 1,
+      chainName: "Ethereum",
+      hash,
+      category: "erc20",
+      asset: tokenOutAsset,
+      contractAddress: "0x0000000000000000000000000000000000000001",
+      value: 10,
+      fromAddress: "0xrouter",
+      toAddress: "0xwallet",
+      blockNum: "0x1",
+      timestamp: "2026-06-04T00:00:00.000Z",
+      isSwapLike: true,
+      rawPayload: "{}"
+    }
+  ];
 }
 
 function getCandidateByHash(candidates: Array<{ id: string; hash: string }>, hash: string) {

@@ -277,12 +277,20 @@ function hydrateActivityFromRawPayload(item: WalletActivity): WalletActivity {
     raw.metadata && typeof raw.metadata === "object" && !Array.isArray(raw.metadata)
       ? (raw.metadata as Record<string, unknown>).blockTimestamp
       : "";
+  const rawCategory = typeof raw.category === "string" ? raw.category.trim() : "";
+  const rawFrom = normalizeOptionalAddress(typeof raw.from === "string" ? raw.from : undefined);
+  const rawTo = normalizeOptionalAddress(typeof raw.to === "string" ? raw.to : undefined);
+  const rawBlockNum = typeof raw.blockNum === "string" ? raw.blockNum.trim() : "";
 
   return {
     ...item,
+    category: item.category || rawCategory,
     asset: isMissingAsset(item.asset) && rawAsset ? rawAsset : item.asset,
     contractAddress: item.contractAddress || rawAddress,
     value: item.value || (Number.isFinite(rawValue) ? rawValue : item.value),
+    fromAddress: item.fromAddress || rawFrom,
+    toAddress: item.toAddress || rawTo,
+    blockNum: item.blockNum || rawBlockNum,
     timestamp:
       Number.isFinite(Date.parse(item.timestamp)) || typeof rawTimestamp !== "string" || !rawTimestamp
         ? item.timestamp
