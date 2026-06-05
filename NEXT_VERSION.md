@@ -4,22 +4,22 @@
 
 Recent commits on `main`:
 
+- `feat: add Import data control to dashboard`
+- `feat: add import preview and import API routes`
+- `feat: add transactional replace-all importLocalData`
+- `feat: add import bundle validator and summary`
 - `refactor: remove vestigial columns and positions table from schema and seed`
-- `feat: drop vestigial positions table and portfolio total columns on migrate`
-- `26651fd feat: export local simulator data`
-- `18957a8 feat: reset paper portfolio`
-- `8e80719 feat: show persisted candidate attention counts`
 
-Latest verification after the vestigial-state cleanup:
+Latest verification after the import/restore work:
 
-- `npm test` passes: 9 test files, 89 tests (added a migration test).
+- `npm test` passes: 10 test files, 97 tests (added validator + import round-trip/replace tests).
 - `npx tsc --noEmit` passes.
-- `npm run build` passes.
-- Migration smoke check passed against the real `data/paper-trader.db`: after hitting `GET /api/portfolio` and `GET /api/ledger/verify` (both 200), `portfolios` now has only `id, name, starting_cash_usd, created_at, updated_at` and the `positions` table is gone.
+- `npm run build` passes (new routes `/api/import` and `/api/import/preview` listed).
+- End-to-end smoke check against the real `data/paper-trader.db`: rejection paths return the expected 400 messages (`schemaVersion 2`, missing collections, non-object); a real export → add throwaway wallet → import-the-export round-trip dropped the throwaway (wallets 4 → 3), restored all 13 trades, and `GET /api/ledger/verify` returned `ok:true`.
 
-Best next candidate: build the matching local import/restore flow for the export bundle. Keep it manual and guarded: parse a selected JSON file, validate `schemaVersion`, show a compact summary of what will be restored, require confirmation, and import in a transaction. Start with a replace-all restore for wallets, settings, tokens, raw activity, candidates, quotes, trades, and ledger entries; avoid merging semantics until real usage proves which conflicts matter. After import, run the ledger verifier and refresh the dashboard. The spec/plan groundwork from the cleanup work lives in `docs/superpowers/specs/` and `docs/superpowers/plans/`; follow the same brainstorm → spec → plan flow for import.
+Best next candidate: dashboard trust/analytics (Build Next #5) — win rate, fee drag, average hold time, best/worst tokens, realized vs open exposure — now that the data round-trips safely. Alternatively, persistence ops follow-ups (Build Next #6): an archive workflow for paper portfolios, or multi-portfolio support before any scheduled polling.
 
-Just completed: retired the vestigial stored state. The `positions` table and the `portfolios.cash_usd` / `realized_pnl_usd` / `fees_paid_usd` running-total columns are dropped from the schema/seed and dropped from existing DBs via an idempotent `dropVestigialState` migration in `src/lib/db.ts`. Nothing reads them anymore; accounting stays fully ledger-derived. The export bundle and `schemaVersion: 1` are unchanged (export's `positions` field is ledger-derived).
+Just completed: the local import/restore flow. A pure zod validator (`src/lib/importBundle.ts`, `parseImportBundle` + `summarizeImportBundle`) enforces `schemaVersion: 1` and strips derived fields; `importLocalData` in `repositories.ts` does a single-transaction replace-all that preserves original IDs/timestamps (so ledger verify still matches), deleting child-first and inserting parent-first under `foreign_keys = ON`. Routes `POST /api/import/preview` (summary, no write) and `POST /api/import` share the validator. The dashboard has an "Import data" button that previews → `window.confirm` summary → imports → `window.location.reload()`. Derived fields (`positions`, `candidateAttention`, `copySettings`, portfolio totals, `app`/`exportedAt`) are intentionally ignored on import; `copy_settings` rides in via the `settings` array. Spec/plan: `docs/superpowers/specs/2026-06-05-local-import-restore-design.md` and `docs/superpowers/plans/2026-06-05-local-import-restore.md`.
 
 ## Recently Completed — Ledger Accounting (merged to `main`)
 
@@ -157,7 +157,7 @@ Do not rely on 0x Trade Analytics for arbitrary GMGN wallets. It only returns tr
    - Add better analytics later: win rate, fee drag, average hold time, best/worst tokens, realized vs open exposure.
 
 6. Improve persistence and data operations.
-   - Add local import/restore for the export bundle. Prefer a transaction and a confirmation summary before replacing local data.
+   - DONE: Local import/restore for the export bundle. Transactional replace-all guarded by a confirmation summary; validated with zod; ledger re-verified after import. See `src/lib/importBundle.ts`, `importLocalData` in `repositories.ts`, and `/api/import` + `/api/import/preview`.
    - Add an archive workflow for paper portfolios so testing bad trades does not require manual DB cleanup.
    - Consider multi-portfolio support before any scheduled polling.
 
