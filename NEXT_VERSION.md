@@ -87,6 +87,7 @@ This is enough to test the workflow, but it should not be treated as reliable Pn
 - Open positions can now be manually marked as a total loss when liquidity is gone or 0x cannot find a usable sell route.
 - Marking a position as a total loss inserts a zero-price sell trade, realizes the remaining cost basis as a loss, closes the position, and leaves cash unchanged.
 - Sell no-route/liquidity errors now surface the same total-loss action when the failed sell maps to an open position.
+- The dashboard now has a reset-paper-portfolio workflow that clears simulated trades, ledger entries, quote previews, and copy attempt results while preserving watched wallets, raw wallet activity, candidates, and copy settings.
 - Wallet activity now summarizes copied, decoded, review, failed, and skipped candidate parse-status counts.
 - Trade history now breaks fees into gas, slippage, and 0x fee lines instead of only showing a combined total.
 - Trade history now shows warning badges for manual total-loss closes, high gas impact, high slippage impact, and stored quote warnings.

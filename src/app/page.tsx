@@ -414,6 +414,58 @@ export default function Home() {
     }
   }
 
+  async function resetPaperPortfolio() {
+    if (
+      !window.confirm(
+        "Reset the simulated paper portfolio? This clears paper trades, ledger entries, quote previews, and copy attempt results. Watched wallets, raw wallet activity, candidates, and copy settings are preserved."
+      )
+    ) {
+      return;
+    }
+
+    setBusy("reset-portfolio");
+    setError("");
+    setMessage("");
+    setPreview(null);
+    setLossOfferTokenAddress("");
+    try {
+      const response = await fetch("/api/portfolio/reset", { method: "POST" });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error ?? "Could not reset paper portfolio.");
+      setCopyResults({});
+      setCandidates((current) =>
+        current.map((candidate) =>
+          candidate.status === "copied" || candidate.status === "failed"
+            ? {
+                ...candidate,
+                status: "candidate",
+                reason: "Paper portfolio was reset; review this candidate before copying again.",
+                lastCopyStatus: "",
+                lastCopyBucket: "",
+                lastCopyReason: "",
+                lastCopyTradeId: "",
+                lastCopyAt: ""
+              }
+            : {
+                ...candidate,
+                lastCopyStatus: "",
+                lastCopyBucket: "",
+                lastCopyReason: "",
+                lastCopyTradeId: "",
+                lastCopyAt: ""
+              }
+        )
+      );
+      setMessage("Paper portfolio reset.");
+      await refresh();
+      await refreshLedgerStatus();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not reset paper portfolio.");
+    } finally {
+      setBusy("");
+    }
+  }
+
   function buildTradePayload() {
     const sellQuantity =
       tradeForm.tokenQuantity || (selectedPosition?.quantity ? String(selectedPosition.quantity) : "");
@@ -449,6 +501,15 @@ export default function Home() {
         <button className="button secondary" onClick={() => refresh()} title="Refresh portfolio">
           <RefreshCw size={18} />
           Refresh
+        </button>
+        <button
+          className="button danger"
+          onClick={() => resetPaperPortfolio()}
+          disabled={busy === "reset-portfolio"}
+          title="Reset simulated paper trades and ledger"
+        >
+          {busy === "reset-portfolio" ? <Loader2 size={18} /> : <Trash2 size={18} />}
+          Reset paper
         </button>
       </header>
 

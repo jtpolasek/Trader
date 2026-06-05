@@ -167,6 +167,110 @@ describe("candidate attention summary", () => {
   });
 });
 
+describe("resetPaperPortfolio", () => {
+  it("clears simulated portfolio state while preserving watch data and settings", async () => {
+    const {
+      getCandidateAttentionSummary,
+      getCopySettings,
+      getPortfolio,
+      insertQuote,
+      insertWalletActivity,
+      listLedgerEntries,
+      listPositions,
+      listTradeCandidates,
+      listTrades,
+      listWalletActivity,
+      listWallets,
+      recordTrade,
+      resetPaperPortfolio,
+      updateCopySettings,
+      updateTradeCandidateCopyResult,
+      updateTradeCandidateStatus,
+      upsertToken,
+      upsertTradeCandidates,
+      upsertWallet
+    } = await import("./repositories");
+    const token = seedToken(upsertToken);
+    upsertWallet({ address: "0xwallet", label: "Wallet", notes: "keep", gmgnUrl: "" });
+    updateCopySettings({
+      mode: "fixedUsd",
+      fixedUsd: 125,
+      percentOfSource: 25,
+      maxTradeUsd: 500,
+      slippageCapBps: 100,
+      gasBufferBps: 1500,
+      insufficientCashBehavior: "cap",
+      allowlist: [token.address],
+      blocklist: []
+    });
+    insertWalletActivity([
+      {
+        walletAddress: "0xwallet",
+        chainId: 1,
+        chainName: "Ethereum",
+        hash: "0xactivity",
+        category: "erc20",
+        asset: "TKN",
+        contractAddress: token.address,
+        value: 10,
+        fromAddress: "0xrouter",
+        toAddress: "0xwallet",
+        blockNum: "0x1",
+        timestamp: "2026-06-04T00:00:00.000Z",
+        isSwapLike: true,
+        rawPayload: "{}"
+      }
+    ]);
+    upsertTradeCandidates([candidateInput({ hash: "0xcandidate", tokenOutAddress: token.address })]);
+    const stored = listTradeCandidates("0xwallet")[0];
+    updateTradeCandidateStatus(stored.id, "copied", "Copied into paper portfolio as trade trade-1.");
+    updateTradeCandidateCopyResult({
+      id: stored.id,
+      status: "copied",
+      reason: "Copied into paper portfolio as trade trade-1.",
+      tradeId: "trade-1"
+    });
+    insertQuote({
+      tokenAddress: token.address,
+      side: "buy",
+      quantity: 10,
+      priceUsd: 10,
+      notionalUsd: 100,
+      gasUsd: 5,
+      slippageUsd: 1,
+      dexFeeUsd: 0,
+      quoteSnapshot: "{}"
+    });
+    recordTrade(tradeInput({ tokenAddress: token.address }));
+
+    expect(listTrades()).toHaveLength(1);
+    expect(listLedgerEntries()).toHaveLength(1);
+    expect(getPortfolio().cashUsd).toBeLessThan(getPortfolio().startingCashUsd);
+
+    const resetPortfolio = resetPaperPortfolio();
+
+    expect(resetPortfolio).toMatchObject({
+      cashUsd: resetPortfolio.startingCashUsd,
+      realizedPnlUsd: 0,
+      feesPaidUsd: 0
+    });
+    expect(listTrades()).toHaveLength(0);
+    expect(listLedgerEntries()).toHaveLength(0);
+    expect(listPositions()).toHaveLength(0);
+    expect(listWallets()).toHaveLength(1);
+    expect(listWalletActivity("0xwallet")).toHaveLength(1);
+    expect(getCopySettings()).toMatchObject({ fixedUsd: 125, insufficientCashBehavior: "cap" });
+    expect(listTradeCandidates("0xwallet")[0]).toMatchObject({
+      status: "candidate",
+      lastCopyStatus: "",
+      lastCopyReason: "",
+      lastCopyTradeId: "",
+      reason: "Paper portfolio was reset; review this candidate before copying again."
+    });
+    expect(getCandidateAttentionSummary()).toMatchObject({ copied: 0 });
+  });
+});
+
 describe("wallet activity token hints", () => {
   it("extracts token symbol and decimals from stored raw transfer payloads", async () => {
     const { getWalletActivityTokenHint, insertWalletActivity, upsertWallet } = await import("./repositories");

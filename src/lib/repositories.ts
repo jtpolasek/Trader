@@ -501,6 +501,53 @@ export function getCandidateAttentionSummary(): CandidateAttentionSummary {
   return summary;
 }
 
+export function resetPaperPortfolio() {
+  const db = getDb();
+  const timestamp = now();
+  db.exec("BEGIN");
+  try {
+    db.prepare("DELETE FROM ledger_entries").run();
+    db.prepare("DELETE FROM trades").run();
+    db.prepare("DELETE FROM quotes").run();
+    db.prepare("DELETE FROM positions").run();
+    db
+      .prepare(
+        `UPDATE portfolios
+         SET cash_usd = starting_cash_usd,
+             realized_pnl_usd = 0,
+             fees_paid_usd = 0,
+             updated_at = ?
+         WHERE id = 'default'`
+      )
+      .run(timestamp);
+    db
+      .prepare(
+        `UPDATE trade_candidates
+         SET status = CASE
+             WHEN status IN ('copied', 'failed') THEN 'candidate'
+             ELSE status
+           END,
+           reason = CASE
+             WHEN status IN ('copied', 'failed') THEN 'Paper portfolio was reset; review this candidate before copying again.'
+             ELSE reason
+           END,
+           last_copy_status = '',
+           last_copy_bucket = '',
+           last_copy_reason = '',
+           last_copy_trade_id = '',
+           last_copy_at = '',
+           updated_at = ?`
+      )
+      .run(timestamp);
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+
+  return getPortfolio();
+}
+
 export function getTradeCandidate(id: string): TradeCandidate | null {
   const row = getDb().prepare("SELECT * FROM trade_candidates WHERE id = ?").get(id) as Row | undefined;
   return row ? rowToTradeCandidate(row) : null;
