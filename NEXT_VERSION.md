@@ -4,13 +4,15 @@
 
 Recent commits on `main`:
 
+- `feat: add dashboard trust signals`
+- `docs: update next version handoff after import/restore flow`
+- `Merge: local import/restore flow`
 - `feat: add Import data control to dashboard`
 - `feat: add import preview and import API routes`
 - `feat: add transactional replace-all importLocalData`
-- `feat: add import bundle validator and summary`
-- `refactor: remove vestigial columns and positions table from schema and seed`
 
-Current branch work: dashboard trust signals v1 is implemented on `codex-dashboard-trust-signals`.
+Current `main` / `origin/main` state: dashboard trust signals v1 is merged and pushed at
+`ca1c839 feat: add dashboard trust signals`.
 A pure helper in `src/lib/portfolioAnalytics.ts` derives win rate, fee drag, FIFO average hold time,
 open exposure, realized PnL, and best/worst realized token from the existing portfolio payload. The
 dashboard now shows a compact trust metric strip and a small "Trust signals" panel. The existing
@@ -22,6 +24,7 @@ Latest verification after dashboard trust signals:
 - `npx tsc --noEmit` passes.
 - `npm run build` passes.
 - Browser verification against `http://localhost:4317` with `agent-browser` passed: page rendered content, no Next.js error overlay, no console errors, and the "Trust signals" section was present in the interactive snapshot.
+- After merge to `main`, `npm test` passed again: 11 test files, 101 tests. `git push origin main` succeeded (`f06e8be..ca1c839`).
 
 Latest verification after the import/restore work:
 
@@ -30,7 +33,12 @@ Latest verification after the import/restore work:
 - `npm run build` passes (new routes `/api/import` and `/api/import/preview` listed).
 - End-to-end smoke check against the real `data/paper-trader.db`: rejection paths return the expected 400 messages (`schemaVersion 2`, missing collections, non-object); a real export → add throwaway wallet → import-the-export round-trip dropped the throwaway (wallets 4 → 3), restored all 13 trades, and `GET /api/ledger/verify` returned `ok:true`.
 
-Best next candidate: dashboard trust/analytics (Build Next #5) — win rate, fee drag, average hold time, best/worst tokens, realized vs open exposure — now that the data round-trips safely. Alternatively, persistence ops follow-ups (Build Next #6): an archive workflow for paper portfolios, or multi-portfolio support before any scheduled polling.
+Best next candidate for the CLI session: wallet activity parsing hardening (Build Next #2), using
+real/stored raw payload examples to tighten candidate swap inference and copy sizing around native
+ETH source trades, Base trades, and sell candidates. Good subagent split if desired: one explorer
+for fixture mining/raw payload examples, one worker for parser tests, one reviewer for copy failure
+classification/UI wording. Alternative next slice: quote reliability hardening (Build Next #1), or
+persistence ops follow-up (Build Next #6) with a paper portfolio archive workflow.
 
 Just completed: the local import/restore flow. A pure zod validator (`src/lib/importBundle.ts`, `parseImportBundle` + `summarizeImportBundle`) enforces `schemaVersion: 1` and strips derived fields; `importLocalData` in `repositories.ts` does a single-transaction replace-all that preserves original IDs/timestamps (so ledger verify still matches), deleting child-first and inserting parent-first under `foreign_keys = ON`. Routes `POST /api/import/preview` (summary, no write) and `POST /api/import` share the validator. The dashboard has an "Import data" button that previews → `window.confirm` summary → imports → `window.location.reload()`. Derived fields (`positions`, `candidateAttention`, `copySettings`, portfolio totals, `app`/`exportedAt`) are intentionally ignored on import; `copy_settings` rides in via the `settings` array. Spec/plan: `docs/superpowers/specs/2026-06-05-local-import-restore-design.md` and `docs/superpowers/plans/2026-06-05-local-import-restore.md`.
 
@@ -84,6 +92,7 @@ This is enough to test the workflow, but it should not be treated as reliable Pn
 - `tsconfig.tsbuildinfo` is a machine-local TypeScript incremental-build cache and is ignored on purpose.
 - Ledger backfill is one-shot: it is skipped whenever `ledger_entries` is non-empty. If `GET /api/ledger/verify` ever reports drift after a bad partial state, the recovery path is to inspect/export the DB, empty `ledger_entries`, restart to re-run backfill, then verify again before continuing.
 - The local export bundle is schema version `1` and currently includes app metadata, portfolio summary, copy settings, candidate attention summary, wallets, tokens, derived positions, trades, ledger entries, quotes, wallet activity, trade candidates, and raw settings. Import should validate this shape before writing anything.
+- Dashboard trust analytics v1 is intentionally read-only and deterministic. It is computed by `derivePortfolioAnalytics` from the current portfolio payload, not persisted in SQLite.
 
 ## Completed Foundation
 
@@ -136,6 +145,7 @@ This is enough to test the workflow, but it should not be treated as reliable Pn
 - Existing trades are backfilled into the ledger once on first migration (idempotent via a row-count guard); total-loss closes backfill correctly as zero-price sells with no special case.
 - `GET /api/ledger/verify` re-derives the expected delta per trade and reports mismatches/missing/orphan entries; the dashboard shows a compact green/red "Ledger ✓ verified" badge.
 - Dashboard portfolio and ledger status refreshes now check `response.ok` before trusting JSON payloads.
+- Dashboard trust signals v1 is shipped: `/api/portfolio` includes `analytics`; the UI shows win rate, fee drag, open exposure, average hold time, realized vs open exposure, and best/worst realized token. The math is covered by `src/lib/portfolioAnalytics.test.ts`.
 
 Do not rely on 0x Trade Analytics for arbitrary GMGN wallets. It only returns trades associated with our own 0x API key/app, so it is useful for our app analytics later, not for discovering or replaying random wallet trades.
 
@@ -164,10 +174,11 @@ Do not rely on 0x Trade Analytics for arbitrary GMGN wallets. It only returns tr
    - DONE: Retired the vestigial state. The `positions` table and the `portfolios.cash_usd` / `realized_pnl_usd` / `fees_paid_usd` running-total columns are dropped from schema/seed and from existing DBs via the idempotent `dropVestigialState` migration. `portfolios.starting_cash_usd` is kept as the ledger baseline.
 
 5. Improve dashboard trust signals.
+   - DONE: Trust signals v1 shipped. `derivePortfolioAnalytics` computes closed trade count, win rate, fee drag, FIFO average hold time, open exposure, realized PnL, and best/worst realized token; the dashboard renders a compact trust strip plus a small "Trust signals" panel.
    - Continue refining fee breakdown details as more execution costs are modeled.
    - Add persisted copied/skipped/failed candidate counts across wallet fetches if the activity view becomes multi-wallet.
    - Continue adding warnings for low liquidity, unreliable 0x simulation, stale quote assumptions, and unsupported trade patterns.
-   - Add better analytics later: win rate, fee drag, average hold time, best/worst tokens, realized vs open exposure.
+   - Add deeper analytics later only if they stay compact: per-token closed trade counts, fee drag by token, quote-warning trend, and realized/open exposure over time.
 
 6. Improve persistence and data operations.
    - DONE: Local import/restore for the export bundle. Transactional replace-all guarded by a confirmation summary; validated with zod; ledger re-verified after import. See `src/lib/importBundle.ts`, `importLocalData` in `repositories.ts`, and `/api/import` + `/api/import/preview`.
