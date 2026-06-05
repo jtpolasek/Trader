@@ -195,6 +195,8 @@ function migrate(database: DatabaseSync) {
       now
     );
 
+  dropVestigialState(database);
+
   backfillLedger(database);
 }
 
@@ -203,6 +205,20 @@ function addColumnIfMissing(database: DatabaseSync, table: string, column: strin
   if (!columns.some((item) => item.name === column)) {
     database.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
   }
+}
+
+function dropColumnIfPresent(database: DatabaseSync, table: string, column: string) {
+  const columns = database.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+  if (columns.some((item) => item.name === column)) {
+    database.exec(`ALTER TABLE ${table} DROP COLUMN ${column}`);
+  }
+}
+
+function dropVestigialState(database: DatabaseSync) {
+  database.exec("DROP TABLE IF EXISTS positions");
+  dropColumnIfPresent(database, "portfolios", "cash_usd");
+  dropColumnIfPresent(database, "portfolios", "realized_pnl_usd");
+  dropColumnIfPresent(database, "portfolios", "fees_paid_usd");
 }
 
 function ensureUniqueLedgerTradeIndex(database: DatabaseSync) {

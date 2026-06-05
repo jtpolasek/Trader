@@ -556,16 +556,8 @@ export function resetPaperPortfolio() {
     db.prepare("DELETE FROM ledger_entries").run();
     db.prepare("DELETE FROM trades").run();
     db.prepare("DELETE FROM quotes").run();
-    db.prepare("DELETE FROM positions").run();
     db
-      .prepare(
-        `UPDATE portfolios
-         SET cash_usd = starting_cash_usd,
-             realized_pnl_usd = 0,
-             fees_paid_usd = 0,
-             updated_at = ?
-         WHERE id = 'default'`
-      )
+      .prepare("UPDATE portfolios SET updated_at = ? WHERE id = 'default'")
       .run(timestamp);
     db
       .prepare(
