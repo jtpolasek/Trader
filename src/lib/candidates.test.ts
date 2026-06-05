@@ -316,6 +316,145 @@ describe("deriveTradeCandidates", () => {
     });
   });
 
+  it("keeps noisy buys with multiple possible received tokens in review", () => {
+    const candidates = deriveTradeCandidates([
+      activity({
+        hash: "0xnoisybuy",
+        category: "external",
+        asset: "ETH",
+        contractAddress: "",
+        value: 0.08,
+        fromAddress: wallet,
+        toAddress: "0xrouter"
+      }),
+      activity({ hash: "0xnoisybuy", asset: "USDC", value: 25, fromAddress: wallet, toAddress: "0xrouter" }),
+      activity({
+        hash: "0xnoisybuy",
+        asset: "PEPE",
+        contractAddress: "0x0000000000000000000000000000000000001000",
+        value: 1000,
+        fromAddress: "0xrouter",
+        toAddress: wallet
+      }),
+      activity({
+        hash: "0xnoisybuy",
+        asset: "AIRDROP",
+        contractAddress: "0x0000000000000000000000000000000000001001",
+        value: 50,
+        fromAddress: "0xrouter",
+        toAddress: wallet
+      })
+    ]);
+
+    expect(candidates[0]).toMatchObject({
+      status: "candidate",
+      confidence: 0.52,
+      side: "buy",
+      tokenOutAsset: "PEPE"
+    });
+    expect(candidates[0].reason).toContain("Multiple possible received tokens");
+  });
+
+  it("keeps noisy sells with multiple possible sent tokens in review", () => {
+    const candidates = deriveTradeCandidates([
+      activity({
+        hash: "0xnoisysell",
+        asset: "PEPE",
+        contractAddress: "0x0000000000000000000000000000000000001000",
+        value: 1000,
+        fromAddress: wallet,
+        toAddress: "0xrouter"
+      }),
+      activity({
+        hash: "0xnoisysell",
+        asset: "REWARD",
+        contractAddress: "0x0000000000000000000000000000000000001002",
+        value: 12,
+        fromAddress: wallet,
+        toAddress: "0xrouter"
+      }),
+      activity({ hash: "0xnoisysell", asset: "USDC", value: 45, fromAddress: "0xrouter", toAddress: wallet }),
+      activity({
+        hash: "0xnoisysell",
+        category: "external",
+        asset: "ETH",
+        contractAddress: "",
+        value: 0.004,
+        fromAddress: "0xrouter",
+        toAddress: wallet
+      })
+    ]);
+
+    expect(candidates[0]).toMatchObject({
+      status: "candidate",
+      confidence: 0.52,
+      side: "sell",
+      tokenInAsset: "PEPE"
+    });
+    expect(candidates[0].reason).toContain("Multiple possible sent tokens");
+  });
+
+  it("keeps Base raw-payload transactions with plausible buy and sell shapes as review-only", () => {
+    const candidates = deriveTradeCandidates([
+      activity({
+        hash: "0xbaseambiguous",
+        chainId: 8453,
+        chainName: "Base",
+        category: "external",
+        asset: "unknown",
+        contractAddress: "",
+        value: 0,
+        fromAddress: wallet,
+        toAddress: "0xrouter",
+        rawPayload: JSON.stringify({ asset: "ETH", value: 0.02 })
+      }),
+      activity({
+        hash: "0xbaseambiguous",
+        chainId: 8453,
+        chainName: "Base",
+        asset: "TOSEND",
+        contractAddress: "0x0000000000000000000000000000000000002001",
+        value: 100,
+        fromAddress: wallet,
+        toAddress: "0xrouter"
+      }),
+      activity({
+        hash: "0xbaseambiguous",
+        chainId: 8453,
+        chainName: "Base",
+        asset: "unknown",
+        contractAddress: "",
+        value: 0,
+        fromAddress: "0xrouter",
+        toAddress: wallet,
+        rawPayload: JSON.stringify({
+          asset: "TOBUY",
+          value: 250,
+          rawContract: { address: "0x0000000000000000000000000000000000002000" }
+        })
+      }),
+      activity({
+        hash: "0xbaseambiguous",
+        chainId: 8453,
+        chainName: "Base",
+        asset: "USDC",
+        value: 60,
+        fromAddress: "0xrouter",
+        toAddress: wallet
+      })
+    ]);
+
+    expect(candidates[0]).toMatchObject({
+      status: "candidate",
+      confidence: 0.4,
+      chainName: "Base",
+      side: "unknown",
+      tokenInAsset: "ETH",
+      tokenOutAsset: "TOBUY"
+    });
+    expect(candidates[0].reason).toContain("plausible buy and sell shapes");
+  });
+
   it("does not merge same hash activity across chains", () => {
     const candidates = deriveTradeCandidates([
       activity({ chainId: 1, chainName: "Ethereum", hash: "0xsame", asset: "USDC", fromAddress: wallet, toAddress: "0xrouter" }),

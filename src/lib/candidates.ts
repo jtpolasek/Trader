@@ -9,6 +9,12 @@ type TransferPair = {
   side: TradeSide | "unknown";
   score: number;
 };
+type PairAnalysis = {
+  viablePairs: TransferPair[];
+  sideCount: number;
+  buyCopyTokenCount: number;
+  sellCopyTokenCount: number;
+};
 
 export function deriveTradeCandidates(activity: WalletActivity[]): CandidateDraft[] {
   const groups = new Map<string, WalletActivity[]>();
@@ -30,15 +36,26 @@ function toCandidate(items: WalletActivity[]): CandidateDraft {
   const outbound = items.filter(
     (item) => item.fromAddress.toLowerCase() === wallet && item.toAddress.toLowerCase() !== wallet
   );
-  const selectedPair = selectBestPair(outbound, inbound);
+  const pairAnalysis = analyzePairs(outbound, inbound);
+  const hasMixedSideShapes = pairAnalysis.sideCount > 1;
+  const selectedPair = hasMixedSideShapes
+    ? selectBestPairForSide(pairAnalysis.viablePairs, "buy") ?? pairAnalysis.viablePairs[0] ?? null
+    : pairAnalysis.viablePairs[0] ?? null;
   const tokenIn = selectedPair?.tokenIn ?? largestTransfer(outbound);
   const tokenOut = selectedPair?.tokenOut ?? largestTransfer(inbound);
   const hasBothDirections = Boolean(tokenIn && tokenOut);
-  const viablePairCount = countViablePairs(outbound, inbound);
-  const isAmbiguous = inbound.length > 1 || outbound.length > 1 || viablePairCount > 1;
-  const side = selectedPair?.side ?? inferSide(tokenIn?.asset, tokenOut?.asset);
+  const viablePairCount = pairAnalysis.viablePairs.length;
+  const selectedSide = selectedPair?.side ?? inferSide(tokenIn?.asset, tokenOut?.asset);
+  const side = hasMixedSideShapes ? "unknown" : selectedSide;
   const tokenToCopy = side === "buy" ? tokenOut : side === "sell" ? tokenIn : null;
   const missingCopyTokenAddress = Boolean(tokenToCopy && !tokenToCopy.contractAddress);
+  const hasMultipleCopyTokens =
+    selectedSide === "buy"
+      ? pairAnalysis.buyCopyTokenCount > 1
+      : selectedSide === "sell"
+      ? pairAnalysis.sellCopyTokenCount > 1
+      : false;
+  const isAmbiguous = inbound.length > 1 || outbound.length > 1 || viablePairCount > 1;
   const sourceTimestamp = newestTimestamp(items);
 
   if (!hasBothDirections) {
@@ -64,7 +81,9 @@ function toCandidate(items: WalletActivity[]): CandidateDraft {
 
   if (side === "unknown") {
     const reason =
-      hasMissingTokenDetails(tokenIn) || hasMissingTokenDetails(tokenOut)
+      hasMixedSideShapes
+        ? "Transfers include plausible buy and sell shapes in the same transaction. Review on the block explorer before copying."
+        : hasMissingTokenDetails(tokenIn) || hasMissingTokenDetails(tokenOut)
         ? "Alchemy returned a paired transfer with missing token symbol, amount, or contract address. Review on the block explorer before copying."
         : "Transfers are paired, but the buy/sell side could not be inferred from common cash/native assets.";
 
@@ -74,7 +93,7 @@ function toCandidate(items: WalletActivity[]): CandidateDraft {
       chainName: first.chainName,
       hash: first.hash,
       status: "candidate",
-      confidence: isAmbiguous ? 0.45 : 0.6,
+      confidence: hasMixedSideShapes ? 0.4 : isAmbiguous ? 0.45 : 0.6,
       side,
       tokenInAsset: tokenIn.asset,
       tokenInAddress: tokenIn.contractAddress,
@@ -94,7 +113,7 @@ function toCandidate(items: WalletActivity[]): CandidateDraft {
     chainName: first.chainName,
     hash: first.hash,
     status: isAmbiguous || missingCopyTokenAddress ? "candidate" : "decoded",
-    confidence: missingCopyTokenAddress ? 0.58 : isAmbiguous ? 0.72 : 0.9,
+    confidence: missingCopyTokenAddress ? 0.58 : hasMultipleCopyTokens ? 0.52 : isAmbiguous ? 0.72 : 0.9,
     side,
     tokenInAsset: tokenIn.asset,
     tokenInAddress: tokenIn.contractAddress,
@@ -104,6 +123,8 @@ function toCandidate(items: WalletActivity[]): CandidateDraft {
     tokenOutAmount: tokenOut.value,
     reason: missingCopyTokenAddress
       ? "The likely traded token has no contract address in the transfer payload; review before copying."
+      : hasMultipleCopyTokens
+      ? describeMultipleCopyTokens(selectedSide, tokenIn.asset, tokenOut.asset)
       : isAmbiguous
       ? describeAmbiguousPair(side, tokenIn.asset, tokenOut.asset)
       : describeDecodedPair(side, tokenIn.asset, tokenOut.asset),
@@ -116,7 +137,7 @@ function largestTransfer(items: WalletActivity[]) {
   return [...items].sort((a, b) => b.value - a.value)[0] ?? null;
 }
 
-function selectBestPair(outbound: WalletActivity[], inbound: WalletActivity[]): TransferPair | null {
+function analyzePairs(outbound: WalletActivity[], inbound: WalletActivity[]): PairAnalysis {
   const pairs = outbound.flatMap((tokenIn) =>
     inbound.map((tokenOut) => {
       const side = inferSide(tokenIn.asset, tokenOut.asset);
@@ -129,16 +150,26 @@ function selectBestPair(outbound: WalletActivity[], inbound: WalletActivity[]): 
     })
   );
   const viable = pairs.filter((pair) => pair.score > 0).sort((a, b) => b.score - a.score);
-  return viable[0] ?? null;
+  return {
+    viablePairs: viable,
+    sideCount: new Set(viable.map((pair) => pair.side)).size,
+    buyCopyTokenCount: countDistinctCopyTokens(viable, "buy"),
+    sellCopyTokenCount: countDistinctCopyTokens(viable, "sell")
+  };
 }
 
-function countViablePairs(outbound: WalletActivity[], inbound: WalletActivity[]) {
-  return outbound.reduce(
-    (count, tokenIn) =>
-      count +
-      inbound.filter((tokenOut) => scorePair(tokenIn, tokenOut, inferSide(tokenIn.asset, tokenOut.asset)) > 0).length,
-    0
-  );
+function selectBestPairForSide(pairs: TransferPair[], side: TradeSide) {
+  return pairs.find((pair) => pair.side === side) ?? null;
+}
+
+function countDistinctCopyTokens(pairs: TransferPair[], side: TradeSide) {
+  return new Set(
+    pairs
+      .filter((pair) => pair.side === side)
+      .map((pair) => (side === "buy" ? pair.tokenOut : pair.tokenIn))
+      .map((item) => item.contractAddress || normalizeAsset(item.asset))
+      .filter(Boolean)
+  ).size;
 }
 
 function scorePair(tokenIn: WalletActivity, tokenOut: WalletActivity, side: TradeSide | "unknown") {
@@ -214,6 +245,17 @@ function describeAmbiguousPair(side: TradeSide, tokenInAsset: string, tokenOutAs
     } for ${tokenOutAsset || "the received token"}. Review before copying.`;
   }
   return `Multiple inbound or outbound transfers were found; selected the likely sell of ${
+    tokenInAsset || "the sent token"
+  } into ${tokenOutAsset || "cash/native asset"}. Review before copying.`;
+}
+
+function describeMultipleCopyTokens(side: TradeSide | "unknown", tokenInAsset: string, tokenOutAsset: string) {
+  if (side === "buy") {
+    return `Multiple possible received tokens were found; selected the likely buy using ${
+      tokenInAsset || "cash/native asset"
+    } for ${tokenOutAsset || "the received token"}. Review before copying.`;
+  }
+  return `Multiple possible sent tokens were found; selected the likely sell of ${
     tokenInAsset || "the sent token"
   } into ${tokenOutAsset || "cash/native asset"}. Review before copying.`;
 }

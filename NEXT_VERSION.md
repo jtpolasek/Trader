@@ -65,6 +65,7 @@ This is enough to test the workflow, but it should not be treated as reliable Pn
 - Trade candidates now carry token in/out contract addresses and downgrade confidence when the likely copied token has no address.
 - Candidate parsing now scores every watched-wallet outbound/inbound transfer pair and prefers cash/native-to-token buy shapes or token-to-cash/native sell shapes, instead of blindly choosing the largest raw transfer in each direction.
 - Native ETH source trades, Base token buys, and noisy multi-transfer sell/buy examples are covered by parser tests; ambiguous multi-transfer candidates remain manual-review instead of high-confidence decoded.
+- Noisy transactions with multiple plausible received tokens, multiple plausible sent tokens, or both buy and sell shapes now stay manual-review with lower confidence and specific review reasons.
 - Wallet activity and trade candidates now show local-time timestamps, and candidates sort by source transaction time newest first.
 - Copy settings now persist in SQLite and can be edited from the dashboard.
 - Copy settings currently include fixed-dollar mode, percent-of-source mode, max trade cap, slippage cap, gas buffer, insufficient-cash behavior, token allowlist, and token blocklist.
