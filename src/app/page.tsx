@@ -15,6 +15,7 @@ import {
   WalletCards
 } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { candidateCopyTokenAddress, classifyCandidateTrust } from "@/lib/candidateTrust";
 import { DEFAULT_COPY_SETTINGS, DEFAULT_GAS_BUFFER_BPS, DEFAULT_SLIPPAGE_BPS } from "@/lib/constants";
 import { formatNumber, formatUsd, formatUsdPrice } from "@/lib/money";
 import type {
@@ -929,12 +930,14 @@ export default function Home() {
                   const visibleCopyResult = isCopying
                     ? null
                     : copyResults[candidate.id] ?? candidateLastCopyResult(candidate);
+                  const trust = classifyCandidateTrust(candidate);
                   return (
                   <article className="candidate" key={candidate.id}>
                     <div className="row">
                       <div>
                         <div className="activity-meta">
                           <span className={candidateStatusClass(candidate.status)}>{candidate.status}</span>
+                          <span className={`pill ${trust.tone}`} title={trust.title}>{trust.label}</span>
                           <span className="pill">{candidate.chainName}</span>
                           <span className="pill">{Math.round(candidate.confidence * 100)}% confidence</span>
                         </div>
@@ -946,7 +949,7 @@ export default function Home() {
                         ) : null}
                         <ExplorerLink chainId={candidate.chainId} hash={candidate.hash} />
                       </div>
-                      {canCopyCandidate(candidate) ? (
+                      {trust.copyable ? (
                         <button
                           className="button secondary"
                           onClick={() => copyCandidate(candidate)}
@@ -956,7 +959,12 @@ export default function Home() {
                           {isCopying ? <Loader2 size={18} /> : <Send size={18} />}
                           {candidateCopyButtonLabel(candidate, copyResults[candidate.id])}
                         </button>
-                      ) : null}
+                      ) : trust.label === "Copied" ? null : (
+                        <button className="button secondary" disabled title={trust.title}>
+                          <Eye size={18} />
+                          Review
+                        </button>
+                      )}
                     </div>
                     <div className="grid dashboard-grid">
                       <Mini label="Input" value={`${formatNumber(candidate.tokenInAmount, 6)} ${candidate.tokenInAsset || "-"}`} />
@@ -1375,20 +1383,6 @@ function candidateStatusClass(status: TradeCandidate["status"]) {
   if (status === "skipped" || status === "failed") return "pill bad";
   if (status === "partial" || status === "candidate") return "pill warn";
   return "pill";
-}
-
-function candidateCopyTokenAddress(candidate: TradeCandidate) {
-  if (candidate.side === "buy") return candidate.tokenOutAddress;
-  if (candidate.side === "sell") return candidate.tokenInAddress;
-  return candidate.tokenOutAddress || candidate.tokenInAddress;
-}
-
-function canCopyCandidate(candidate: TradeCandidate) {
-  return (
-    (candidate.status === "decoded" || candidate.status === "candidate" || candidate.status === "partial") &&
-    (candidate.side === "buy" || candidate.side === "sell") &&
-    Boolean(candidateCopyTokenAddress(candidate))
-  );
 }
 
 function candidateTitle(candidate: TradeCandidate) {
