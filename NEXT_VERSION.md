@@ -4,22 +4,22 @@
 
 Recent commits on `main`:
 
+- `refactor: remove vestigial columns and positions table from schema and seed`
+- `feat: drop vestigial positions table and portfolio total columns on migrate`
 - `26651fd feat: export local simulator data`
 - `18957a8 feat: reset paper portfolio`
 - `8e80719 feat: show persisted candidate attention counts`
-- `d5e56b7 feat: show candidate trust badges`
-- `9d541fc fix: keep noisy wallet candidates in review`
 
-Latest verification after the export work:
+Latest verification after the vestigial-state cleanup:
 
-- `npm test` passes: 9 test files, 88 tests.
+- `npm test` passes: 9 test files, 89 tests (added a migration test).
 - `npx tsc --noEmit` passes.
 - `npm run build` passes.
-- Browser/API smoke check passed: dashboard renders `Export data`, and `GET /api/export` returns status 200 with `schemaVersion: 1`, attachment filename, and expected export arrays.
+- Migration smoke check passed against the real `data/paper-trader.db`: after hitting `GET /api/portfolio` and `GET /api/ledger/verify` (both 200), `portfolios` now has only `id, name, starting_cash_usd, created_at, updated_at` and the `positions` table is gone.
 
-Best next candidate: build the matching local import/restore flow for the new export bundle. Keep it manual and guarded: parse a selected JSON file, validate `schemaVersion`, show a compact summary of what will be restored, require confirmation, and import in a transaction. Start with a replace-all restore for wallets, settings, tokens, raw activity, candidates, quotes, trades, and ledger entries; avoid merging semantics until real usage proves which conflicts matter. After import, run the ledger verifier and refresh the dashboard.
+Best next candidate: build the matching local import/restore flow for the export bundle. Keep it manual and guarded: parse a selected JSON file, validate `schemaVersion`, show a compact summary of what will be restored, require confirmation, and import in a transaction. Start with a replace-all restore for wallets, settings, tokens, raw activity, candidates, quotes, trades, and ledger entries; avoid merging semantics until real usage proves which conflicts matter. After import, run the ledger verifier and refresh the dashboard. The spec/plan groundwork from the cleanup work lives in `docs/superpowers/specs/` and `docs/superpowers/plans/`; follow the same brainstorm → spec → plan flow for import.
 
-Second-best candidate: retire or clearly deprecate vestigial stored state now that ledger-derived reads are stable. The `positions` table and `portfolios.cash_usd` / `realized_pnl_usd` / `fees_paid_usd` running-total columns are no longer read for truth, but they still exist and could tempt a future stale query.
+Just completed: retired the vestigial stored state. The `positions` table and the `portfolios.cash_usd` / `realized_pnl_usd` / `fees_paid_usd` running-total columns are dropped from the schema/seed and dropped from existing DBs via an idempotent `dropVestigialState` migration in `src/lib/db.ts`. Nothing reads them anymore; accounting stays fully ledger-derived. The export bundle and `schemaVersion: 1` are unchanged (export's `positions` field is ledger-derived).
 
 ## Recently Completed — Ledger Accounting (merged to `main`)
 
@@ -148,7 +148,7 @@ Do not rely on 0x Trade Analytics for arbitrary GMGN wallets. It only returns tr
    - Continue polishing retry/copy-again feedback as more real failure cases appear.
 
 4. Ledger accounting hardening and cleanup (core shipped; these are follow-ups).
-   - Retire the vestigial state now that nothing reads it: the `positions` table and the `portfolios.cash_usd` / `realized_pnl_usd` / `fees_paid_usd` running-total columns are written/seeded but never read. Drop them (or comment them as deprecated) so a future query can't accidentally read stale values. Keep `portfolios.starting_cash_usd`, which is still the ledger's baseline.
+   - DONE: Retired the vestigial state. The `positions` table and the `portfolios.cash_usd` / `realized_pnl_usd` / `fees_paid_usd` running-total columns are dropped from schema/seed and from existing DBs via the idempotent `dropVestigialState` migration. `portfolios.starting_cash_usd` is kept as the ledger baseline.
 
 5. Improve dashboard trust signals.
    - Continue refining fee breakdown details as more execution costs are modeled.
