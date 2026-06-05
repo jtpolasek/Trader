@@ -385,6 +385,67 @@ describe("wallet activity token hints", () => {
   });
 });
 
+describe("vestigial state migration", () => {
+  it("drops the positions table and legacy portfolio total columns on existing databases", async () => {
+    const { DatabaseSync } = await import("node:sqlite");
+    const dataDir = path.join(process.cwd(), "data");
+    fs.mkdirSync(dataDir, { recursive: true });
+
+    const legacy = new DatabaseSync(path.join(dataDir, "paper-trader.db"));
+    legacy.exec(`
+      CREATE TABLE portfolios (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        cash_usd REAL NOT NULL,
+        starting_cash_usd REAL NOT NULL,
+        realized_pnl_usd REAL NOT NULL DEFAULT 0,
+        fees_paid_usd REAL NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE positions (
+        token_address TEXT PRIMARY KEY,
+        quantity REAL NOT NULL,
+        average_entry_usd REAL NOT NULL,
+        cost_basis_usd REAL NOT NULL,
+        realized_pnl_usd REAL NOT NULL DEFAULT 0,
+        fees_paid_usd REAL NOT NULL DEFAULT 0,
+        updated_at TEXT NOT NULL
+      );
+      INSERT INTO portfolios
+        (id, name, cash_usd, starting_cash_usd, realized_pnl_usd, fees_paid_usd, created_at, updated_at)
+      VALUES
+        ('default', 'Main Paper Account', 4200, 10000, -1, 7,
+         '2026-06-01T00:00:00.000Z', '2026-06-01T00:00:00.000Z');
+    `);
+    legacy.close();
+
+    vi.resetModules();
+    const { getDb } = await import("./db");
+    const { getPortfolio } = await import("./repositories");
+    const db = getDb();
+
+    const portfolioColumns = (
+      db.prepare("PRAGMA table_info(portfolios)").all() as Array<{ name: string }>
+    ).map((column) => column.name);
+    expect(portfolioColumns).not.toContain("cash_usd");
+    expect(portfolioColumns).not.toContain("realized_pnl_usd");
+    expect(portfolioColumns).not.toContain("fees_paid_usd");
+    expect(portfolioColumns).toContain("starting_cash_usd");
+
+    const positionsTable = db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'positions'")
+      .get();
+    expect(positionsTable).toBeUndefined();
+
+    const portfolio = getPortfolio();
+    expect(portfolio.startingCashUsd).toBe(10000);
+    expect(portfolio.cashUsd).toBe(10000);
+    expect(portfolio.realizedPnlUsd).toBe(0);
+    expect(portfolio.feesPaidUsd).toBe(0);
+  });
+});
+
 function seedToken(upsertToken: (input: { address: string; symbol: string; name: string; decimals: number }) => unknown) {
   const token = {
     address: "0x0000000000000000000000000000000000000001",
