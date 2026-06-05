@@ -3,6 +3,7 @@
 import {
   Activity,
   BadgeDollarSign,
+  Download,
   Eye,
   History,
   Loader2,
@@ -414,6 +415,36 @@ export default function Home() {
     }
   }
 
+  async function exportSimulatorData() {
+    setBusy("export-data");
+    setError("");
+    setMessage("");
+    try {
+      const response = await fetch("/api/export", { cache: "no-store" });
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { error?: unknown } | null;
+        throw new Error(typeof payload?.error === "string" ? payload.error : "Could not export local data.");
+      }
+
+      const blob = await response.blob();
+      const disposition = response.headers.get("content-disposition") ?? "";
+      const filename = disposition.match(/filename="([^"]+)"/)?.[1] ?? `gmgn-export-${new Date().toISOString().slice(0, 10)}.json`;
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      setMessage("Export downloaded.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not export local data.");
+    } finally {
+      setBusy("");
+    }
+  }
+
   async function resetPaperPortfolio() {
     if (
       !window.confirm(
@@ -501,6 +532,15 @@ export default function Home() {
         <button className="button secondary" onClick={() => refresh()} title="Refresh portfolio">
           <RefreshCw size={18} />
           Refresh
+        </button>
+        <button
+          className="button secondary"
+          onClick={() => exportSimulatorData()}
+          disabled={busy === "export-data"}
+          title="Export local simulator data"
+        >
+          {busy === "export-data" ? <Loader2 size={18} /> : <Download size={18} />}
+          Export data
         </button>
         <button
           className="button danger"

@@ -88,6 +88,7 @@ This is enough to test the workflow, but it should not be treated as reliable Pn
 - Marking a position as a total loss inserts a zero-price sell trade, realizes the remaining cost basis as a loss, closes the position, and leaves cash unchanged.
 - Sell no-route/liquidity errors now surface the same total-loss action when the failed sell maps to an open position.
 - The dashboard now has a reset-paper-portfolio workflow that clears simulated trades, ledger entries, quote previews, and copy attempt results while preserving watched wallets, raw wallet activity, candidates, and copy settings.
+- The dashboard can now download a local JSON export containing wallets, settings, tokens, raw activity, candidates, quotes, trades, ledger entries, and derived portfolio state before resets or experiments.
 - Wallet activity now summarizes copied, decoded, review, failed, and skipped candidate parse-status counts.
 - Trade history now breaks fees into gas, slippage, and 0x fee lines instead of only showing a combined total.
 - Trade history now shows warning badges for manual total-loss closes, high gas impact, high slippage impact, and stored quote warnings.
@@ -134,7 +135,7 @@ Do not rely on 0x Trade Analytics for arbitrary GMGN wallets. It only returns tr
    - Add better analytics later: win rate, fee drag, average hold time, best/worst tokens, realized vs open exposure.
 
 6. Improve persistence and data operations.
-   - Add local export/import for wallets, copy settings, trades, positions, and raw activity.
+   - Add local import for wallets, copy settings, trades, positions, and raw activity.
    - Add a reset or archive workflow for paper portfolios so testing bad trades does not require manual DB cleanup.
    - Consider multi-portfolio support before any scheduled polling.
 

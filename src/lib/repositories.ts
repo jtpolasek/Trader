@@ -15,6 +15,46 @@ export type CandidateAttentionSummary = {
   total: number;
 };
 
+export type QuoteExport = {
+  id: string;
+  tokenAddress: string;
+  side: string;
+  quantity: number;
+  priceUsd: number;
+  notionalUsd: number;
+  gasUsd: number;
+  slippageUsd: number;
+  dexFeeUsd: number;
+  quoteSnapshot: string;
+  createdAt: string;
+};
+
+export type SettingExport = {
+  key: string;
+  value: string;
+};
+
+export type LocalDataExport = {
+  schemaVersion: 1;
+  exportedAt: string;
+  app: {
+    name: "gmgn-paper-trader";
+    version: "0.1.0";
+  };
+  portfolio: Portfolio;
+  copySettings: CopySettings;
+  candidateAttention: CandidateAttentionSummary;
+  wallets: Wallet[];
+  tokens: Token[];
+  positions: Position[];
+  trades: Trade[];
+  ledgerEntries: LedgerEntry[];
+  quotes: QuoteExport[];
+  walletActivity: WalletActivity[];
+  tradeCandidates: TradeCandidate[];
+  settings: SettingExport[];
+};
+
 const now = () => new Date().toISOString();
 
 
@@ -289,6 +329,29 @@ export function listTrades(): Trade[] {
     .all() as Row[]).map(rowToTrade);
 }
 
+export function exportLocalData(): LocalDataExport {
+  return {
+    schemaVersion: 1,
+    exportedAt: now(),
+    app: {
+      name: "gmgn-paper-trader",
+      version: "0.1.0"
+    },
+    portfolio: getPortfolio(),
+    copySettings: getCopySettings(),
+    candidateAttention: getCandidateAttentionSummary(),
+    wallets: listWallets(),
+    tokens: listTokensForExport(),
+    positions: listPositions(),
+    trades: listTradesForExport(),
+    ledgerEntries: listLedgerEntries(),
+    quotes: listQuotesForExport(),
+    walletActivity: listWalletActivityForExport(),
+    tradeCandidates: listTradeCandidatesForExport(),
+    settings: listSettingsForExport()
+  };
+}
+
 export function insertQuote(input: {
   tokenAddress: string;
   side: string;
@@ -365,23 +428,7 @@ export function listWalletActivity(walletAddress: string): WalletActivity[] {
        ORDER BY timestamp DESC
        LIMIT 100`
     )
-    .all(walletAddress) as Row[]).map((row) => ({
-    id: String(row.id),
-    walletAddress: String(row.wallet_address),
-    chainId: Number(row.chain_id),
-    chainName: String(row.chain_name),
-    hash: String(row.hash),
-    category: String(row.category),
-    asset: String(row.asset),
-    contractAddress: String(row.contract_address),
-    value: Number(row.value),
-    fromAddress: String(row.from_address),
-    toAddress: String(row.to_address),
-    blockNum: String(row.block_num),
-    timestamp: String(row.timestamp),
-    isSwapLike: Boolean(row.is_swap_like),
-    rawPayload: String(row.raw_payload)
-  }));
+    .all(walletAddress) as Row[]).map(rowToWalletActivity);
 }
 
 export function getWalletActivityTokenHint(input: {
@@ -601,6 +648,9 @@ function rowToToken(row: Row): Token {
   };
 }
 
+function listTokensForExport(): Token[] {
+  return (getDb().prepare("SELECT * FROM tokens ORDER BY created_at ASC, address ASC").all() as Row[]).map(rowToToken);
+}
 
 function rowToTrade(row: Row): Trade {
   return {
@@ -618,6 +668,92 @@ function rowToTrade(row: Row): Trade {
     realizedPnlUsd: Number(row.realized_pnl_usd),
     quoteSnapshot: String(row.quote_snapshot),
     createdAt: String(row.created_at)
+  };
+}
+
+function listTradesForExport(): Trade[] {
+  return (getDb()
+    .prepare(
+      `SELECT tr.*, COALESCE(t.symbol, '') AS symbol
+       FROM trades tr
+       LEFT JOIN tokens t ON t.address = tr.token_address
+       ORDER BY tr.created_at ASC, tr.id ASC`
+    )
+    .all() as Row[]).map(rowToTrade);
+}
+
+function listQuotesForExport(): QuoteExport[] {
+  return (getDb()
+    .prepare(
+      `SELECT *
+       FROM quotes
+       ORDER BY created_at ASC, id ASC`
+    )
+    .all() as Row[]).map((row) => ({
+    id: String(row.id),
+    tokenAddress: String(row.token_address),
+    side: String(row.side),
+    quantity: Number(row.quantity),
+    priceUsd: Number(row.price_usd),
+    notionalUsd: Number(row.notional_usd),
+    gasUsd: Number(row.gas_usd),
+    slippageUsd: Number(row.slippage_usd),
+    dexFeeUsd: Number(row.dex_fee_usd),
+    quoteSnapshot: String(row.quote_snapshot),
+    createdAt: String(row.created_at)
+  }));
+}
+
+function listWalletActivityForExport(): WalletActivity[] {
+  return (getDb()
+    .prepare(
+      `SELECT *
+       FROM wallet_activity
+       ORDER BY timestamp ASC, id ASC`
+    )
+    .all() as Row[]).map(rowToWalletActivity);
+}
+
+function listTradeCandidatesForExport(): TradeCandidate[] {
+  return (getDb()
+    .prepare(
+      `SELECT *
+       FROM trade_candidates
+       ORDER BY COALESCE(NULLIF(source_timestamp, ''), updated_at) ASC, id ASC`
+    )
+    .all() as Row[]).map(rowToTradeCandidate);
+}
+
+function listSettingsForExport(): SettingExport[] {
+  return (getDb()
+    .prepare(
+      `SELECT key, value
+       FROM settings
+       ORDER BY key ASC`
+    )
+    .all() as Row[]).map((row) => ({
+    key: String(row.key),
+    value: String(row.value)
+  }));
+}
+
+function rowToWalletActivity(row: Row): WalletActivity {
+  return {
+    id: String(row.id),
+    walletAddress: String(row.wallet_address),
+    chainId: Number(row.chain_id),
+    chainName: String(row.chain_name),
+    hash: String(row.hash),
+    category: String(row.category),
+    asset: String(row.asset),
+    contractAddress: String(row.contract_address),
+    value: Number(row.value),
+    fromAddress: String(row.from_address),
+    toAddress: String(row.to_address),
+    blockNum: String(row.block_num),
+    timestamp: String(row.timestamp),
+    isSwapLike: Boolean(row.is_swap_like),
+    rawPayload: String(row.raw_payload)
   };
 }
 

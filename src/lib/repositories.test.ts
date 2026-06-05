@@ -167,6 +167,86 @@ describe("candidate attention summary", () => {
   });
 });
 
+describe("exportLocalData", () => {
+  it("exports full local simulator state for backup or handoff", async () => {
+    const {
+      exportLocalData,
+      insertQuote,
+      insertWalletActivity,
+      recordTrade,
+      updateCopySettings,
+      upsertToken,
+      upsertTradeCandidates,
+      upsertWallet
+    } = await import("./repositories");
+    const token = seedToken(upsertToken);
+
+    upsertWallet({ address: "0xwallet", label: "Wallet", notes: "watch", gmgnUrl: "https://gmgn.ai/0xwallet" });
+    updateCopySettings({
+      mode: "fixedUsd",
+      fixedUsd: 150,
+      percentOfSource: 20,
+      maxTradeUsd: 600,
+      slippageCapBps: 90,
+      gasBufferBps: 1200,
+      insufficientCashBehavior: "cap",
+      allowlist: [token.address],
+      blocklist: []
+    });
+    insertWalletActivity([
+      {
+        walletAddress: "0xwallet",
+        chainId: 8453,
+        chainName: "Base",
+        hash: "0xactivity",
+        category: "erc20",
+        asset: "TKN",
+        contractAddress: token.address,
+        value: 10,
+        fromAddress: "0xrouter",
+        toAddress: "0xwallet",
+        blockNum: "0x1",
+        timestamp: "2026-06-04T00:00:00.000Z",
+        isSwapLike: true,
+        rawPayload: JSON.stringify({ rawContract: { decimal: "0x12" } })
+      }
+    ]);
+    upsertTradeCandidates([candidateInput({ hash: "0xcandidate", chainId: 8453, chainName: "Base" })]);
+    insertQuote({
+      tokenAddress: token.address,
+      side: "buy",
+      quantity: 10,
+      priceUsd: 10,
+      notionalUsd: 100,
+      gasUsd: 5,
+      slippageUsd: 1,
+      dexFeeUsd: 0,
+      quoteSnapshot: JSON.stringify({ provider: "0x" })
+    });
+    recordTrade(tradeInput({ tokenAddress: token.address }));
+
+    const backup = exportLocalData();
+
+    expect(backup.schemaVersion).toBe(1);
+    expect(new Date(backup.exportedAt).toString()).not.toBe("Invalid Date");
+    expect(backup.app).toEqual({ name: "gmgn-paper-trader", version: "0.1.0" });
+    expect(backup.wallets).toHaveLength(1);
+    expect(backup.copySettings).toMatchObject({ fixedUsd: 150, insufficientCashBehavior: "cap" });
+    expect(backup.tokens).toEqual([expect.objectContaining({ address: token.address, symbol: "TKN" })]);
+    expect(backup.trades).toHaveLength(1);
+    expect(backup.ledgerEntries).toHaveLength(1);
+    expect(backup.quotes).toEqual([expect.objectContaining({ tokenAddress: token.address, quoteSnapshot: "{\"provider\":\"0x\"}" })]);
+    expect(backup.walletActivity).toEqual([
+      expect.objectContaining({ chainId: 8453, rawPayload: "{\"rawContract\":{\"decimal\":\"0x12\"}}" })
+    ]);
+    expect(backup.tradeCandidates).toEqual([expect.objectContaining({ hash: "0xcandidate", chainName: "Base" })]);
+    expect(backup.candidateAttention).toMatchObject({ ready: 1, total: 1 });
+    expect(backup.portfolio.cashUsd).toBeLessThan(backup.portfolio.startingCashUsd);
+    expect(backup.positions).toEqual([expect.objectContaining({ tokenAddress: token.address, quantity: 10 })]);
+    expect(backup.settings).toEqual([expect.objectContaining({ key: "copy_settings" })]);
+  });
+});
+
 describe("resetPaperPortfolio", () => {
   it("clears simulated portfolio state while preserving watch data and settings", async () => {
     const {
