@@ -1,5 +1,26 @@
 # Next Version Handoff
 
+## Latest Session Notes
+
+Recent commits on `main`:
+
+- `26651fd feat: export local simulator data`
+- `18957a8 feat: reset paper portfolio`
+- `8e80719 feat: show persisted candidate attention counts`
+- `d5e56b7 feat: show candidate trust badges`
+- `9d541fc fix: keep noisy wallet candidates in review`
+
+Latest verification after the export work:
+
+- `npm test` passes: 9 test files, 88 tests.
+- `npx tsc --noEmit` passes.
+- `npm run build` passes.
+- Browser/API smoke check passed: dashboard renders `Export data`, and `GET /api/export` returns status 200 with `schemaVersion: 1`, attachment filename, and expected export arrays.
+
+Best next candidate: build the matching local import/restore flow for the new export bundle. Keep it manual and guarded: parse a selected JSON file, validate `schemaVersion`, show a compact summary of what will be restored, require confirmation, and import in a transaction. Start with a replace-all restore for wallets, settings, tokens, raw activity, candidates, quotes, trades, and ledger entries; avoid merging semantics until real usage proves which conflicts matter. After import, run the ledger verifier and refresh the dashboard.
+
+Second-best candidate: retire or clearly deprecate vestigial stored state now that ledger-derived reads are stable. The `positions` table and `portfolios.cash_usd` / `realized_pnl_usd` / `fees_paid_usd` running-total columns are no longer read for truth, but they still exist and could tempt a future stale query.
+
 ## Recently Completed — Ledger Accounting (merged to `main`)
 
 Workstream #4 (ledger-style accounting) is implemented and merged. The design and plan live in
@@ -11,7 +32,7 @@ portfolio cash/PnL/fees and per-token positions are computed on read by summing 
 (no cached running totals, so drift is structurally impossible); trade + ledger writes happen in
 one transaction via `recordTrade`; a one-time backfill migrates existing trades; a read-only
 `GET /api/ledger/verify` cross-checks the ledger against the trade log and surfaces a dashboard
-"Ledger ✓ verified" trust badge. Verified via `npm test` (51 passing) and `npx tsc --noEmit`.
+"Ledger ✓ verified" trust badge. Current full-suite verification is tracked in Latest Session Notes.
 
 Remaining ledger hardening/cleanup is tracked under "Ledger accounting hardening" in Build Next.
 The next priorities are #2 (wallet decoding) then #3 (copy ergonomics) below.
@@ -49,6 +70,7 @@ This is enough to test the workflow, but it should not be treated as reliable Pn
 - Be careful with `next-env.d.ts` churn after builds. Do not revert user work, but avoid committing unrelated generated noise.
 - `tsconfig.tsbuildinfo` is a machine-local TypeScript incremental-build cache and is ignored on purpose.
 - Ledger backfill is one-shot: it is skipped whenever `ledger_entries` is non-empty. If `GET /api/ledger/verify` ever reports drift after a bad partial state, the recovery path is to inspect/export the DB, empty `ledger_entries`, restart to re-run backfill, then verify again before continuing.
+- The local export bundle is schema version `1` and currently includes app metadata, portfolio summary, copy settings, candidate attention summary, wallets, tokens, derived positions, trades, ledger entries, quotes, wallet activity, trade candidates, and raw settings. Import should validate this shape before writing anything.
 
 ## Completed Foundation
 
@@ -135,8 +157,8 @@ Do not rely on 0x Trade Analytics for arbitrary GMGN wallets. It only returns tr
    - Add better analytics later: win rate, fee drag, average hold time, best/worst tokens, realized vs open exposure.
 
 6. Improve persistence and data operations.
-   - Add local import for wallets, copy settings, trades, positions, and raw activity.
-   - Add a reset or archive workflow for paper portfolios so testing bad trades does not require manual DB cleanup.
+   - Add local import/restore for the export bundle. Prefer a transaction and a confirmation summary before replacing local data.
+   - Add an archive workflow for paper portfolios so testing bad trades does not require manual DB cleanup.
    - Consider multi-portfolio support before any scheduled polling.
 
 ## Longer-Term Feature List
