@@ -13,9 +13,10 @@ import {
   Save,
   Target,
   Trash2,
+  Upload,
   WalletCards
 } from "lucide-react";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { candidateCopyTokenAddress, classifyCandidateTrust } from "@/lib/candidateTrust";
 import { DEFAULT_COPY_SETTINGS, DEFAULT_GAS_BUFFER_BPS, DEFAULT_SLIPPAGE_BPS } from "@/lib/constants";
 import { formatNumber, formatUsd, formatUsdPrice } from "@/lib/money";
@@ -415,6 +416,67 @@ export default function Home() {
     }
   }
 
+  const importInputRef = useRef<HTMLInputElement>(null);
+
+  async function importSimulatorData(file: File) {
+    setError("");
+    setMessage("");
+
+    let bundle: unknown;
+    try {
+      bundle = JSON.parse(await file.text());
+    } catch {
+      setError("File is not valid JSON.");
+      return;
+    }
+
+    setBusy("import-data");
+    try {
+      const previewResponse = await fetch("/api/import/preview", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(bundle)
+      });
+      const previewPayload = await previewResponse.json();
+      if (!previewResponse.ok) throw new Error(previewPayload.error ?? "Could not read import file.");
+
+      const s = previewPayload.summary as {
+        wallets: number; tokens: number; trades: number; ledgerEntries: number; quotes: number;
+        walletActivity: number; tradeCandidates: number; settings: number; startingCashUsd: number;
+      };
+      const confirmed = window.confirm(
+        "Import will REPLACE all local data with the selected file:\n\n" +
+          `- ${s.wallets} wallets\n` +
+          `- ${s.tokens} tokens\n` +
+          `- ${s.trades} trades\n` +
+          `- ${s.ledgerEntries} ledger entries\n` +
+          `- ${s.quotes} quotes\n` +
+          `- ${s.walletActivity} activity rows\n` +
+          `- ${s.tradeCandidates} candidates\n` +
+          `- ${s.settings} settings\n` +
+          `Starting cash: ${formatUsd(s.startingCashUsd)}\n\n` +
+          "This cannot be undone. Continue?"
+      );
+      if (!confirmed) {
+        setBusy("");
+        return;
+      }
+
+      const importResponse = await fetch("/api/import", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(bundle)
+      });
+      const importPayload = await importResponse.json();
+      if (!importResponse.ok) throw new Error(importPayload.error ?? "Could not import local data.");
+
+      window.location.reload();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not import local data.");
+      setBusy("");
+    }
+  }
+
   async function exportSimulatorData() {
     setBusy("export-data");
     setError("");
@@ -532,6 +594,26 @@ export default function Home() {
         <button className="button secondary" onClick={() => refresh()} title="Refresh portfolio">
           <RefreshCw size={18} />
           Refresh
+        </button>
+        <input
+          ref={importInputRef}
+          type="file"
+          accept="application/json"
+          style={{ display: "none" }}
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            event.target.value = "";
+            if (file) importSimulatorData(file);
+          }}
+        />
+        <button
+          className="button secondary"
+          onClick={() => importInputRef.current?.click()}
+          disabled={busy === "import-data"}
+          title="Import a local simulator export"
+        >
+          {busy === "import-data" ? <Loader2 size={18} /> : <Upload size={18} />}
+          Import data
         </button>
         <button
           className="button secondary"
