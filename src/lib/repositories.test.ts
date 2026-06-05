@@ -446,6 +446,61 @@ describe("vestigial state migration", () => {
   });
 });
 
+describe("importLocalData", () => {
+  it("round-trips an export bundle without duplicating rows", async () => {
+    const repos = await import("./repositories");
+    const { parseImportBundle } = await import("./importBundle");
+    const token = seedToken(repos.upsertToken);
+    repos.upsertWallet({ address: "0xwallet", label: "W", notes: "", gmgnUrl: "" });
+    repos.updateCopySettings({
+      mode: "fixedUsd", fixedUsd: 125, percentOfSource: 25, maxTradeUsd: 500,
+      slippageCapBps: 100, gasBufferBps: 1500, insufficientCashBehavior: "cap", allowlist: [], blocklist: []
+    });
+    repos.recordTrade(tradeInput({ tokenAddress: token.address }));
+
+    const bundle = repos.exportLocalData();
+    const reparsed = parseImportBundle(JSON.parse(JSON.stringify(bundle)));
+    repos.importLocalData(reparsed);
+    const after = repos.exportLocalData();
+
+    expect(after.wallets).toEqual(bundle.wallets);
+    expect(after.tokens).toEqual(bundle.tokens);
+    expect(after.trades).toEqual(bundle.trades);
+    expect(after.ledgerEntries).toEqual(bundle.ledgerEntries);
+    expect(after.settings).toEqual(bundle.settings);
+    expect(after.portfolio.startingCashUsd).toBe(bundle.portfolio.startingCashUsd);
+    expect(after.portfolio.cashUsd).toBe(bundle.portfolio.cashUsd);
+    expect(after.trades).toHaveLength(1);
+    expect(after.ledgerEntries).toHaveLength(1);
+  });
+
+  it("replaces pre-existing data with the imported bundle", async () => {
+    const repos = await import("./repositories");
+    const { parseImportBundle } = await import("./importBundle");
+    const token = seedToken(repos.upsertToken);
+    repos.upsertWallet({ address: "0xwallet", label: "W", notes: "", gmgnUrl: "" });
+    repos.recordTrade(tradeInput({ tokenAddress: token.address }));
+    const bundle = repos.exportLocalData();
+
+    // Diverge: add a second wallet, token, and trade so state is now bundle + extra.
+    const extraToken = repos.upsertToken({
+      address: "0x00000000000000000000000000000000000000ff", symbol: "EXTRA", name: "Extra", decimals: 18
+    });
+    repos.upsertWallet({ address: "0xother", label: "Other", notes: "", gmgnUrl: "" });
+    repos.recordTrade(tradeInput({ tokenAddress: extraToken.address }));
+    expect(repos.exportLocalData().trades).toHaveLength(2);
+
+    repos.importLocalData(parseImportBundle(JSON.parse(JSON.stringify(bundle))));
+    const after = repos.exportLocalData();
+
+    expect(after.wallets.map((w) => w.address)).toEqual(["0xwallet"]);
+    expect(after.tokens.map((t) => t.address)).toEqual([token.address]);
+    expect(after.trades).toHaveLength(1);
+    expect(after.portfolio.cashUsd).toBe(bundle.portfolio.cashUsd);
+    expect(after.portfolio.realizedPnlUsd).toBe(bundle.portfolio.realizedPnlUsd);
+  });
+});
+
 function seedToken(upsertToken: (input: { address: string; symbol: string; name: string; decimals: number }) => unknown) {
   const token = {
     address: "0x0000000000000000000000000000000000000001",
