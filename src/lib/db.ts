@@ -24,10 +24,7 @@ function migrate(database: DatabaseSync) {
     CREATE TABLE IF NOT EXISTS portfolios (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
-      cash_usd REAL NOT NULL,
       starting_cash_usd REAL NOT NULL,
-      realized_pnl_usd REAL NOT NULL DEFAULT 0,
-      fees_paid_usd REAL NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -46,17 +43,6 @@ function migrate(database: DatabaseSync) {
       name TEXT NOT NULL,
       decimals INTEGER NOT NULL,
       created_at TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS positions (
-      token_address TEXT PRIMARY KEY,
-      quantity REAL NOT NULL,
-      average_entry_usd REAL NOT NULL,
-      cost_basis_usd REAL NOT NULL,
-      realized_pnl_usd REAL NOT NULL DEFAULT 0,
-      fees_paid_usd REAL NOT NULL DEFAULT 0,
-      updated_at TEXT NOT NULL,
-      FOREIGN KEY(token_address) REFERENCES tokens(address)
     );
 
     CREATE TABLE IF NOT EXISTS trades (
@@ -183,13 +169,12 @@ function migrate(database: DatabaseSync) {
   database
     .prepare(
       `INSERT OR IGNORE INTO portfolios
-        (id, name, cash_usd, starting_cash_usd, realized_pnl_usd, fees_paid_usd, created_at, updated_at)
-       VALUES (?, ?, ?, ?, 0, 0, ?, ?)`
+        (id, name, starting_cash_usd, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?)`
     )
     .run(
       DEFAULT_PORTFOLIO.id,
       DEFAULT_PORTFOLIO.name,
-      DEFAULT_PORTFOLIO.startingCashUsd,
       DEFAULT_PORTFOLIO.startingCashUsd,
       now,
       now
