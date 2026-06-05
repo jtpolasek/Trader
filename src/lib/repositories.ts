@@ -4,6 +4,7 @@ import { DEFAULT_COPY_SETTINGS } from "./constants";
 import { getDb } from "./db";
 import type { CopyAttemptStatus, CopySettings, LedgerEntry, Portfolio, Position, Token, Trade, TradeCandidate, TradeInput, TradeLedgerInput, Wallet, WalletActivity } from "./types";
 import { derivePortfolioTotals, derivePositions, ledgerDeltaFromTrade } from "./ledger";
+import { summarizeImportBundle, type ImportBundle, type ImportSummary } from "./importBundle";
 
 type Row = Record<string, unknown>;
 export type CandidateAttentionSummary = {
@@ -350,6 +351,112 @@ export function exportLocalData(): LocalDataExport {
     tradeCandidates: listTradeCandidatesForExport(),
     settings: listSettingsForExport()
   };
+}
+
+export function importLocalData(bundle: ImportBundle): { portfolio: Portfolio; summary: ImportSummary } {
+  const db = getDb();
+  db.exec("BEGIN");
+  try {
+    db.prepare("DELETE FROM ledger_entries").run();
+    db.prepare("DELETE FROM quotes").run();
+    db.prepare("DELETE FROM trades").run();
+    db.prepare("DELETE FROM wallet_activity").run();
+    db.prepare("DELETE FROM trade_candidates").run();
+    db.prepare("DELETE FROM tokens").run();
+    db.prepare("DELETE FROM wallets").run();
+    db.prepare("DELETE FROM settings").run();
+
+    const insertWallet = db.prepare(
+      "INSERT INTO wallets (address, label, notes, gmgn_url, created_at) VALUES (?, ?, ?, ?, ?)"
+    );
+    for (const w of bundle.wallets) {
+      insertWallet.run(w.address, w.label, w.notes, w.gmgnUrl, w.createdAt);
+    }
+
+    const insertTokenRow = db.prepare(
+      "INSERT INTO tokens (address, symbol, name, decimals, created_at) VALUES (?, ?, ?, ?, ?)"
+    );
+    for (const t of bundle.tokens) {
+      insertTokenRow.run(t.address, t.symbol, t.name, t.decimals, t.createdAt);
+    }
+
+    const insertTradeRow = db.prepare(
+      `INSERT INTO trades
+        (id, side, token_address, quantity, price_usd, notional_usd, gas_usd, slippage_usd, dex_fee_usd, total_cost_usd, realized_pnl_usd, quote_snapshot, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    );
+    for (const tr of bundle.trades) {
+      insertTradeRow.run(
+        tr.id, tr.side, tr.tokenAddress, tr.quantity, tr.priceUsd, tr.notionalUsd, tr.gasUsd,
+        tr.slippageUsd, tr.dexFeeUsd, tr.totalCostUsd, tr.realizedPnlUsd, tr.quoteSnapshot, tr.createdAt
+      );
+    }
+
+    const insertLedger = db.prepare(
+      `INSERT INTO ledger_entries
+        (id, entry_type, trade_id, token_address, cash_delta, quantity_delta, cost_basis_delta, realized_pnl_delta, fee_delta, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    );
+    for (const e of bundle.ledgerEntries) {
+      insertLedger.run(
+        e.id, e.entryType, e.tradeId, e.tokenAddress, e.cashDelta, e.quantityDelta,
+        e.costBasisDelta, e.realizedPnlDelta, e.feeDelta, e.createdAt
+      );
+    }
+
+    const insertQuoteRow = db.prepare(
+      `INSERT INTO quotes
+        (id, token_address, side, quantity, price_usd, notional_usd, gas_usd, slippage_usd, dex_fee_usd, quote_snapshot, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    );
+    for (const q of bundle.quotes) {
+      insertQuoteRow.run(
+        q.id, q.tokenAddress, q.side, q.quantity, q.priceUsd, q.notionalUsd, q.gasUsd,
+        q.slippageUsd, q.dexFeeUsd, q.quoteSnapshot, q.createdAt
+      );
+    }
+
+    const insertActivity = db.prepare(
+      `INSERT INTO wallet_activity
+        (id, wallet_address, chain_id, chain_name, hash, category, asset, contract_address, value, from_address, to_address, block_num, timestamp, is_swap_like, raw_payload)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    );
+    for (const a of bundle.walletActivity) {
+      insertActivity.run(
+        a.id, a.walletAddress, a.chainId, a.chainName, a.hash, a.category, a.asset, a.contractAddress,
+        a.value, a.fromAddress, a.toAddress, a.blockNum, a.timestamp, a.isSwapLike ? 1 : 0, a.rawPayload
+      );
+    }
+
+    const insertCandidate = db.prepare(
+      `INSERT INTO trade_candidates
+        (id, wallet_address, chain_id, chain_name, hash, status, confidence, side, token_in_asset, token_in_address, token_in_amount, token_out_asset, token_out_address, token_out_amount, reason, transfer_count, source_timestamp, last_copy_status, last_copy_bucket, last_copy_reason, last_copy_trade_id, last_copy_at, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    );
+    for (const c of bundle.tradeCandidates) {
+      insertCandidate.run(
+        c.id, c.walletAddress, c.chainId, c.chainName, c.hash, c.status, c.confidence, c.side,
+        c.tokenInAsset, c.tokenInAddress, c.tokenInAmount, c.tokenOutAsset, c.tokenOutAddress, c.tokenOutAmount,
+        c.reason, c.transferCount, c.sourceTimestamp, c.lastCopyStatus, c.lastCopyBucket, c.lastCopyReason,
+        c.lastCopyTradeId, c.lastCopyAt, c.createdAt, c.updatedAt
+      );
+    }
+
+    const insertSetting = db.prepare("INSERT INTO settings (key, value) VALUES (?, ?)");
+    for (const s of bundle.settings) {
+      insertSetting.run(s.key, s.value);
+    }
+
+    db.prepare("UPDATE portfolios SET name = ?, starting_cash_usd = ?, updated_at = ? WHERE id = 'default'")
+      .run(bundle.portfolio.name, bundle.portfolio.startingCashUsd, now());
+
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+
+  return { portfolio: getPortfolio(), summary: summarizeImportBundle(bundle) };
 }
 
 export function insertQuote(input: {
