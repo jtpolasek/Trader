@@ -170,3 +170,21 @@ export type PortfolioTotals = {
   realizedPnlUsd: number;
   feesPaidUsd: number;
 };
+
+export type PortfolioAnalyticsTokenResult = {
+  symbol: string;
+  realizedPnlUsd: number;
+};
+
+export type PortfolioAnalytics = {
+  closedTrades: number;
+  winningTrades: number;
+  losingTrades: number;
+  winRate: number | null;
+  feeDrag: number | null;
+  averageHoldHours: number | null;
+  openExposureUsd: number;
+  realizedPnlUsd: number;
+  bestToken: PortfolioAnalyticsTokenResult | null;
+  worstToken: PortfolioAnalyticsTokenResult | null;
+};

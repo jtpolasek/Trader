@@ -22,6 +22,7 @@ import { DEFAULT_COPY_SETTINGS, DEFAULT_GAS_BUFFER_BPS, DEFAULT_SLIPPAGE_BPS } f
 import { formatNumber, formatUsd, formatUsdPrice } from "@/lib/money";
 import type {
   CopySettings,
+  PortfolioAnalytics,
   Position,
   QuotePreview,
   Trade,
@@ -43,6 +44,7 @@ type PortfolioPayload = {
   trades: Trade[];
   wallets: Wallet[];
   candidateAttention: CandidateAttention;
+  analytics: PortfolioAnalytics;
   stats: {
     openCostBasisUsd: number;
     equityUsd: number;
@@ -576,6 +578,7 @@ export default function Home() {
 
   const portfolio = data?.portfolio;
   const stats = data?.stats;
+  const analytics = data?.analytics;
   const lossOfferPosition =
     lossOfferTokenAddress && data?.positions.find((position) => position.tokenAddress === lossOfferTokenAddress);
 
@@ -658,6 +661,33 @@ export default function Home() {
         <Metric icon={<Target size={20} />} label="Equity basis" value={formatUsd(stats?.equityUsd ?? 0)} />
         <Metric icon={<Activity size={20} />} label="Realized PnL" value={formatUsd(portfolio?.realizedPnlUsd ?? 0)} />
         <Metric icon={<History size={20} />} label="Fees paid" value={formatUsd(stats?.totalFeesUsd ?? 0)} />
+      </section>
+
+      <section className="section grid dashboard-grid trust-strip">
+        <Metric
+          className="compact-metric"
+          icon={<Activity size={18} />}
+          label="Win rate"
+          value={formatNullablePercent(analytics?.winRate, "No closed trades")}
+        />
+        <Metric
+          className="compact-metric"
+          icon={<BadgeDollarSign size={18} />}
+          label="Fee drag"
+          value={formatNullablePercent(analytics?.feeDrag)}
+        />
+        <Metric
+          className="compact-metric"
+          icon={<Target size={18} />}
+          label="Open exposure"
+          value={formatUsd(analytics?.openExposureUsd ?? 0)}
+        />
+        <Metric
+          className="compact-metric"
+          icon={<History size={18} />}
+          label="Avg hold"
+          value={formatHoldHours(analytics?.averageHoldHours)}
+        />
       </section>
 
       <section className="section">
@@ -1016,6 +1046,19 @@ export default function Home() {
         </div>
 
         <div className="stack">
+          <div className="panel trust-panel">
+            <div className="row">
+              <h2>Trust signals</h2>
+              <span className="pill">{analytics?.closedTrades ?? 0} closed</span>
+            </div>
+            <div className="grid dashboard-grid">
+              <Mini label="Realized" value={formatUsd(analytics?.realizedPnlUsd ?? 0)} />
+              <Mini label="Open exposure" value={formatUsd(analytics?.openExposureUsd ?? 0)} />
+              <Mini label="Best token" value={formatTokenResult(analytics?.bestToken)} />
+              <Mini label="Worst token" value={formatTokenResult(analytics?.worstToken)} />
+            </div>
+          </div>
+
           <div className="panel">
             <div className="row">
               <h2>Positions</h2>
@@ -1216,9 +1259,19 @@ export default function Home() {
   );
 }
 
-function Metric({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
+function Metric({
+  icon,
+  label,
+  value,
+  className = ""
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  className?: string;
+}) {
   return (
-    <div className="metric">
+    <div className={`metric ${className}`.trim()}>
       <span className="row">
         {label}
         {icon}
@@ -1475,6 +1528,21 @@ function formatPercent(value: number) {
     minimumFractionDigits: 0,
     maximumFractionDigits: 1
   }).format(Number.isFinite(value) ? value : 0);
+}
+
+function formatNullablePercent(value: number | null | undefined, fallback = "-") {
+  return value === null || value === undefined ? fallback : formatPercent(value);
+}
+
+function formatHoldHours(value: number | null | undefined) {
+  if (value === null || value === undefined) return "No closed trades";
+  if (value < 24) return `${formatNumber(value, 1)} hrs`;
+  return `${formatNumber(value / 24, 1)} days`;
+}
+
+function formatTokenResult(token: PortfolioAnalytics["bestToken"] | undefined) {
+  if (!token) return "-";
+  return `${token.symbol} ${formatUsd(token.realizedPnlUsd)}`;
 }
 
 function ExplorerLink({ chainId, hash }: { chainId: number; hash: string }) {

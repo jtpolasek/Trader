@@ -145,6 +145,27 @@ h3 {
   line-height: 1;
 }
 
+.trust-strip {
+  padding-top: 0;
+}
+
+.compact-metric {
+  padding: 12px 14px;
+}
+
+.compact-metric strong {
+  font-size: 1.12rem;
+  line-height: 1.15;
+}
+
+.trust-panel .dashboard-grid {
+  gap: 12px;
+}
+
+.trust-panel p {
+  overflow-wrap: anywhere;
+}
+
 .panel {
   padding: 18px;
 }

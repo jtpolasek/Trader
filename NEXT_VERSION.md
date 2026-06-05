@@ -10,6 +10,19 @@ Recent commits on `main`:
 - `feat: add import bundle validator and summary`
 - `refactor: remove vestigial columns and positions table from schema and seed`
 
+Current branch work: dashboard trust signals v1 is implemented on `codex-dashboard-trust-signals`.
+A pure helper in `src/lib/portfolioAnalytics.ts` derives win rate, fee drag, FIFO average hold time,
+open exposure, realized PnL, and best/worst realized token from the existing portfolio payload. The
+dashboard now shows a compact trust metric strip and a small "Trust signals" panel. The existing
+`/api/portfolio` response includes `analytics` so the dashboard still loads through one request.
+
+Latest verification after dashboard trust signals:
+
+- `npm test` passes: 11 test files, 101 tests.
+- `npx tsc --noEmit` passes.
+- `npm run build` passes.
+- Browser verification against `http://localhost:4317` with `agent-browser` passed: page rendered content, no Next.js error overlay, no console errors, and the "Trust signals" section was present in the interactive snapshot.
+
 Latest verification after the import/restore work:
 
 - `npm test` passes: 10 test files, 97 tests (added validator + import round-trip/replace tests).
