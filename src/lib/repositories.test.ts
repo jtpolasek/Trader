@@ -109,6 +109,64 @@ describe("trade candidate copy results", () => {
   });
 });
 
+describe("candidate attention summary", () => {
+  it("counts persisted candidate trust buckets across watched wallets", async () => {
+    const {
+      getCandidateAttentionSummary,
+      listTradeCandidates,
+      updateTradeCandidateCopyResult,
+      updateTradeCandidateStatus,
+      upsertTradeCandidates,
+      upsertWallet
+    } = await import("./repositories");
+    upsertWallet({ address: "0xwallet", label: "Wallet", notes: "", gmgnUrl: "" });
+    upsertWallet({ address: "0xwallet2", label: "Wallet 2", notes: "", gmgnUrl: "" });
+    upsertTradeCandidates([
+      candidateInput({ hash: "0xready", status: "decoded" }),
+      candidateInput({
+        hash: "0xreview",
+        status: "candidate",
+        confidence: 0.72,
+        reason: "Multiple inbound or outbound transfers were found; selected the likely buy."
+      }),
+      candidateInput({
+        hash: "0xblocked",
+        status: "candidate",
+        confidence: 0.52,
+        reason: "Multiple possible received tokens were found; selected the likely buy."
+      }),
+      candidateInput({ hash: "0xmissing", status: "candidate", tokenOutAddress: "" }),
+      candidateInput({ walletAddress: "0xwallet2", hash: "0xfailed", status: "decoded" }),
+      candidateInput({ walletAddress: "0xwallet2", hash: "0xcopied", status: "decoded" })
+    ]);
+
+    const failed = getCandidateByHash(listTradeCandidates("0xwallet2"), "0xfailed");
+    updateTradeCandidateCopyResult({
+      id: failed.id,
+      status: "failed",
+      bucket: "no-liquidity",
+      reason: "No usable 0x liquidity or route was found."
+    });
+    const copied = getCandidateByHash(listTradeCandidates("0xwallet2"), "0xcopied");
+    updateTradeCandidateStatus(copied.id, "copied", "Copied into paper portfolio.");
+    updateTradeCandidateCopyResult({
+      id: copied.id,
+      status: "copied",
+      reason: "Copied into paper portfolio.",
+      tradeId: "trade-1"
+    });
+
+    expect(getCandidateAttentionSummary()).toEqual({
+      ready: 1,
+      review: 1,
+      blocked: 2,
+      failed: 1,
+      copied: 1,
+      total: 6
+    });
+  });
+});
+
 describe("wallet activity token hints", () => {
   it("extracts token symbol and decimals from stored raw transfer payloads", async () => {
     const { getWalletActivityTokenHint, insertWalletActivity, upsertWallet } = await import("./repositories");
@@ -191,4 +249,10 @@ function candidateInput(overrides = {}) {
     sourceTimestamp: "2026-06-04T00:00:00.000Z",
     ...overrides
   };
+}
+
+function getCandidateByHash(candidates: Array<{ id: string; hash: string }>, hash: string) {
+  const candidate = candidates.find((item) => item.hash === hash);
+  if (!candidate) throw new Error(`Missing candidate ${hash}`);
+  return candidate;
 }

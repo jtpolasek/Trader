@@ -1,5 +1,12 @@
 import { NextResponse } from "next/server";
-import { getCopySettings, getPortfolio, listPositions, listTrades, listWallets } from "@/lib/repositories";
+import {
+  getCandidateAttentionSummary,
+  getCopySettings,
+  getPortfolio,
+  listPositions,
+  listTrades,
+  listWallets
+} from "@/lib/repositories";
 
 export async function GET() {
   const portfolio = getPortfolio();
@@ -14,6 +21,7 @@ export async function GET() {
   return NextResponse.json({
     portfolio,
     copySettings: getCopySettings(),
+    candidateAttention: getCandidateAttentionSummary(),
     positions,
     trades,
     wallets,

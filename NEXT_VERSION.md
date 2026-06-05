@@ -79,6 +79,7 @@ This is enough to test the workflow, but it should not be treated as reliable Pn
 - Candidate copy attempts now persist separately from parser status as `last_copy_*` fields; failed copy attempts no longer overwrite a decoded/review candidate's status, while successful copies still finalize the candidate as `copied`.
 - Failed candidate copy attempts can now be retried directly from the candidate card; the button switches to "Retry" and stale failure details are hidden while the new attempt is running.
 - Candidate cards now show compact trust badges like Ready, Review, No address, Mixed shape, Multiple tokens, No route, and Failed, with unsafe/noisy candidates shown as review-only instead of silently hiding the action.
+- The dashboard now includes persisted candidate attention counts across all watched wallets: ready, review, blocked, failed, and copied.
 - Copy settings `insufficientCashBehavior: "cap"` now performs fee-aware buy re-quoting: if the first copied buy exceeds available cash after gas/slippage/0x fees, the route computes an affordable notional, re-quotes it, and only executes when the final all-in total fits cash.
 - The manual trade ticket now includes an Ethereum/Base chain selector and sends `chainId` through preview/execute, so Base token contracts are no longer resolved as Ethereum by default.
 - Watched wallet creation now accepts either a raw `0x...` address or a GMGN wallet URL and extracts the address automatically.

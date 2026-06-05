@@ -40,6 +40,7 @@ type PortfolioPayload = {
   positions: Position[];
   trades: Trade[];
   wallets: Wallet[];
+  candidateAttention: CandidateAttention;
   stats: {
     openCostBasisUsd: number;
     equityUsd: number;
@@ -98,6 +99,15 @@ type CopyResult = {
   sellProceedsUsd?: number;
   cashCap?: { fromUsd: number; toUsd: number } | null;
   tradeId?: string;
+};
+
+type CandidateAttention = {
+  ready: number;
+  review: number;
+  blocked: number;
+  failed: number;
+  copied: number;
+  total: number;
 };
 
 type TradeSignal = {
@@ -465,6 +475,14 @@ export default function Home() {
         <Metric icon={<Target size={20} />} label="Equity basis" value={formatUsd(stats?.equityUsd ?? 0)} />
         <Metric icon={<Activity size={20} />} label="Realized PnL" value={formatUsd(portfolio?.realizedPnlUsd ?? 0)} />
         <Metric icon={<History size={20} />} label="Fees paid" value={formatUsd(stats?.totalFeesUsd ?? 0)} />
+      </section>
+
+      <section className="section">
+        <div className="row">
+          <h2>Candidate attention</h2>
+          <span className="pill">{data?.candidateAttention.total ?? 0} saved</span>
+        </div>
+        <CandidateAttentionStrip summary={data?.candidateAttention} />
       </section>
 
       <section className="section grid main-grid">
@@ -1044,6 +1062,19 @@ function CandidateStatusSummary({ stats }: { stats: ReturnType<typeof getCandida
       <span className="pill warn">{stats.review} review</span>
       <span className="pill bad">{stats.failed} failed</span>
       <span className="pill bad">{stats.skipped} skipped</span>
+    </div>
+  );
+}
+
+function CandidateAttentionStrip({ summary }: { summary?: CandidateAttention }) {
+  const counts = summary ?? { ready: 0, review: 0, blocked: 0, failed: 0, copied: 0, total: 0 };
+  return (
+    <div className="status-strip" aria-label="Saved candidate attention counts">
+      <span className="pill good">{counts.ready} ready</span>
+      <span className="pill warn">{counts.review} review</span>
+      <span className="pill bad">{counts.blocked} blocked</span>
+      <span className="pill bad">{counts.failed} failed</span>
+      <span className="pill good">{counts.copied} copied</span>
     </div>
   );
 }

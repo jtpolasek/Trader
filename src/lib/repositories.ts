@@ -1,10 +1,19 @@
 import { randomUUID } from "node:crypto";
+import { classifyCandidateTrust } from "./candidateTrust";
 import { DEFAULT_COPY_SETTINGS } from "./constants";
 import { getDb } from "./db";
 import type { CopyAttemptStatus, CopySettings, LedgerEntry, Portfolio, Position, Token, Trade, TradeCandidate, TradeInput, TradeLedgerInput, Wallet, WalletActivity } from "./types";
 import { derivePortfolioTotals, derivePositions, ledgerDeltaFromTrade } from "./ledger";
 
 type Row = Record<string, unknown>;
+export type CandidateAttentionSummary = {
+  ready: number;
+  review: number;
+  blocked: number;
+  failed: number;
+  copied: number;
+  total: number;
+};
 
 const now = () => new Date().toISOString();
 
@@ -466,6 +475,30 @@ export function listTradeCandidates(walletAddress: string): TradeCandidate[] {
        LIMIT 100`
     )
     .all(walletAddress) as Row[]).map(rowToTradeCandidate);
+}
+
+export function getCandidateAttentionSummary(): CandidateAttentionSummary {
+  const summary: CandidateAttentionSummary = {
+    ready: 0,
+    review: 0,
+    blocked: 0,
+    failed: 0,
+    copied: 0,
+    total: 0
+  };
+
+  const candidates = (getDb().prepare("SELECT * FROM trade_candidates").all() as Row[]).map(rowToTradeCandidate);
+  for (const candidate of candidates) {
+    summary.total += 1;
+    const trust = classifyCandidateTrust(candidate);
+    if (trust.label === "Ready") summary.ready += 1;
+    else if (trust.label === "Copied") summary.copied += 1;
+    else if (trust.label === "Failed" || trust.label === "No route") summary.failed += 1;
+    else if (!trust.copyable) summary.blocked += 1;
+    else summary.review += 1;
+  }
+
+  return summary;
 }
 
 export function getTradeCandidate(id: string): TradeCandidate | null {
