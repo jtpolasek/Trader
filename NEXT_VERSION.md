@@ -2,7 +2,17 @@
 
 ## Latest Session Notes
 
-Just shipped (branch `feat/surface-valued-unpriced-fees`): surfacing the valued/unpriced 0x fee data
+Just shipped (on `main`): internal-transfer sell decode (Build Next #2, first slice). Added `"internal"`
+to the Alchemy `alchemy_getAssetTransfers` category array in `src/lib/external.ts` so DEX sell ETH
+returns are fetched. Extended `hasMissingTokenDetails` in `src/lib/candidates.ts` to treat `"internal"`
+transfers the same as `"external"` (native ETH, no contract address required) while preserving the
+value guard. Two new fixture tests lock the decoded-sell and review-only-sell behaviors. To activate
+on existing data: re-fetch watched wallets in the dashboard, then `npm run reprocess:candidates -- --apply`.
+Spec/plan: `docs/superpowers/specs/2026-06-06-internal-transfer-sell-decode-design.md` and
+`docs/superpowers/plans/2026-06-06-internal-transfer-sell-decode.md`.
+Verification: `npm test` 15 files / 132 tests pass, `npx tsc --noEmit` clean.
+
+Previously shipped (branch `feat/surface-valued-unpriced-fees`): surfacing the valued/unpriced 0x fee data
 in the dashboard (Build Next #1). Front-end only, reads the existing quote-snapshot fields
 (`valuedFeeUsd`, `valuedFeeTokens`, `stillUnpricedFees`) in `src/app/page.tsx` — no schema/route
 changes. Added two helpers next to `getSnapshotWarnings` (`getValuedFeeUsd`,
