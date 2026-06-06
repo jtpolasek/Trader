@@ -746,4 +746,71 @@ describe("deriveTradeCandidates", () => {
     expect(candidates[0].tokenOutAsset).toBe("ETH");
     expect(candidates[0].confidence).toBeGreaterThanOrEqual(0.9);
   });
+
+  it("keeps a Base internal-transfer sell review-only when the token address is missing", () => {
+    const hash = "0xsellnoaddrHash";
+    const chainId = 8453;
+    const router = "0xd0a40c6526acdebd4f6d87931098ff37a9f8e4bf";
+
+    const candidates = deriveTradeCandidates([
+      activity({
+        hash,
+        chainId,
+        chainName: "Base",
+        category: "erc20",
+        asset: "TALOS",
+        contractAddress: "",
+        value: 89492134,
+        fromAddress: wallet,
+        toAddress: router,
+        rawPayload: JSON.stringify({
+          blockNum: "0x2cba766",
+          uniqueId: `${hash}:log:799`,
+          hash,
+          from: wallet,
+          to: router,
+          value: 89492134,
+          asset: "TALOS",
+          category: "erc20",
+          rawContract: { value: "0x4a06b254badabe8f12a84a", address: null, decimal: "0x12" },
+          metadata: { blockTimestamp: "2026-06-04T16:45:35.000Z" },
+          chainId: 8453,
+          chainName: "Base"
+        })
+      }),
+      activity({
+        hash,
+        chainId,
+        chainName: "Base",
+        category: "internal",
+        asset: "ETH",
+        contractAddress: "",
+        value: 0.5,
+        fromAddress: router,
+        toAddress: wallet,
+        rawPayload: JSON.stringify({
+          blockNum: "0x2cba766",
+          uniqueId: `${hash}:internal:0`,
+          hash,
+          from: router,
+          to: wallet,
+          value: 0.5,
+          asset: "ETH",
+          category: "internal",
+          rawContract: { value: "0x6f05b59d3b20000", address: null, decimal: null },
+          metadata: { blockTimestamp: "2026-06-04T16:45:35.000Z" },
+          chainId: 8453,
+          chainName: "Base"
+        })
+      })
+    ]);
+
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0].status).toBe("candidate");
+    expect(candidates[0].side).toBe("sell");
+    expect(candidates[0].tokenInAsset).toBe("TALOS");
+    expect(candidates[0].tokenInAddress).toBe("");
+    expect(candidates[0].tokenOutAsset).toBe("ETH");
+    expect(candidates[0].reason).toContain("no contract address");
+  });
 });
