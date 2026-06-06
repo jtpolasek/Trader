@@ -208,10 +208,10 @@ export function summarizeDexFees(
     ["zeroExFee", fees.zeroExFee],
     ["integratorFee", fees.integratorFee]
   ] as const) {
-    if (!fee?.amount || isUsdc(fee.token)) continue;
+    if (!fee?.amount || !fee.token || isUsdc(fee.token)) continue;
     const amount = Number(fee.amount);
     if (!Number.isFinite(amount) || amount <= 0) continue;
-    unpriced.push({ type, token: fee.token ?? "", amount: fee.amount });
+    unpriced.push({ type, token: fee.token, amount: fee.amount });
   }
 
   return { dexFeeUsd, unpriced };

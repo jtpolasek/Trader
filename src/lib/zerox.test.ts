@@ -41,4 +41,24 @@ describe("summarizeDexFees", () => {
     });
     expect(result.unpriced).toEqual([]);
   });
+
+  it("skips a fee with no token instead of emitting an empty token", () => {
+    const result = summarizeDexFees({
+      fees: { zeroExFee: { amount: "5000000000000000000", type: "volume" } }
+    });
+    expect(result.unpriced).toEqual([]);
+  });
+
+  it("prices USDC fees and flags non-USDC fees in the same quote", () => {
+    const result = summarizeDexFees({
+      fees: {
+        integratorFee: { amount: "1000000", token: TOKENS.USDC.address, type: "volume" },
+        zeroExFee: { amount: "5000000000000000000", token: "0xtoken", type: "volume" }
+      }
+    });
+    expect(result.dexFeeUsd).toBe(1);
+    expect(result.unpriced).toEqual([
+      { type: "zeroExFee", token: "0xtoken", amount: "5000000000000000000" }
+    ]);
+  });
 });
