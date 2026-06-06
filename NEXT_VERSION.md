@@ -29,6 +29,15 @@ Verification: `npx tsc --noEmit`, `npm test` 16 files / 142 tests, and `npm run 
 Known limitation: token identity is still address-primary, not `(chainId, address)` composite, so a
 same-address token held on two chains would still need a deeper schema split later.
 
+Just shipped on `main`: paper portfolio archives. A new `paper_portfolio_archives` table stores local
+JSON snapshots of the paper-only state: trades, ledger entries, quote previews, and copied-candidate
+copy metadata. New routes `GET/POST /api/portfolio/archives` list/create archives, and
+`POST /api/portfolio/archives/[id]/restore` restores an archive transactionally while preserving
+watched wallets, raw wallet activity, candidates, and settings. The dashboard has Archive paper and
+Restore latest controls. Restore clears current paper trades/ledger/quotes, restores the archived
+paper state, and reinstates copied candidate links saved in the archive.
+Verification: `npx tsc --noEmit`, `npm test` 16 files / 143 tests, and `npm run build` pass.
+
 Just shipped (branch `feat/live-unrealized-pnl`): live unrealized P&L on open positions. New
 `GET /api/prices?tokens=addr1,addr2&chainId=8453` route fetches spot prices for all open positions
 in parallel via `getZeroxPrice` (sells $10 USDC → token, derives `priceUsd = 10 / tokensReceived`).
@@ -259,6 +268,7 @@ This is enough to test the workflow, but it should not be treated as reliable Pn
 - Marking a position as a total loss inserts a zero-price sell trade, realizes the remaining cost basis as a loss, closes the position, and leaves cash unchanged.
 - Sell no-route/liquidity errors now surface the same total-loss action when the failed sell maps to an open position.
 - The dashboard now has a reset-paper-portfolio workflow that clears simulated trades, ledger entries, quote previews, and copy attempt results while preserving watched wallets, raw wallet activity, candidates, and copy settings.
+- The dashboard now has a local paper-portfolio archive/restore workflow for risky experiments. Archives snapshot trades, ledger entries, quote previews, and copied-candidate links while preserving watched wallets/activity/candidates/settings outside the archive.
 - The dashboard can now download a local JSON export containing wallets, settings, tokens, raw activity, candidates, quotes, trades, ledger entries, and derived portfolio state before resets or experiments.
 - Wallet activity now summarizes copied, decoded, review, failed, and skipped candidate parse-status counts.
 - Trade history now breaks fees into gas, slippage, and 0x fee lines instead of only showing a combined total.
@@ -326,7 +336,8 @@ Do not rely on 0x Trade Analytics for arbitrary GMGN wallets. It only returns tr
 
 6. Improve persistence and data operations.
    - DONE: Local import/restore for the export bundle. Transactional replace-all guarded by a confirmation summary; validated with zod; ledger re-verified after import. See `src/lib/importBundle.ts`, `importLocalData` in `repositories.ts`, and `/api/import` + `/api/import/preview`.
-   - Add an archive workflow for paper portfolios so testing bad trades does not require manual DB cleanup.
+   - DONE: Add an archive workflow for paper portfolios so testing bad trades does not require manual DB cleanup. Archives are local SQLite snapshots of paper trades/ledger/quotes plus copied-candidate links.
+   - Follow-on: add archive delete/rename controls if the local archive list starts getting noisy.
    - Consider multi-portfolio support before any scheduled polling.
 
 ## Longer-Term Feature List
