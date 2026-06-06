@@ -56,8 +56,15 @@ function toCandidate(items: WalletActivity[]): CandidateDraft {
       ? pairAnalysis.sellCopyTokenCount > 1
       : false;
   const isAmbiguous = inbound.length > 1 || outbound.length > 1 || viablePairCount > 1;
-  const hasOnlyTinyDuplicateCashNoise = selectedPair ? isTinyDuplicateCashNoise(pairAnalysis.viablePairs, selectedPair) : false;
-  const needsReview = (isAmbiguous && !hasOnlyTinyDuplicateCashNoise) || missingCopyTokenAddress;
+  const hasOnlyTinyTransferNoise = selectedPair
+    ? isTinyTransferNoise({
+        selected: selectedPair,
+        viablePairs: pairAnalysis.viablePairs,
+        inbound,
+        outbound
+      })
+    : false;
+  const needsReview = (isAmbiguous && !hasOnlyTinyTransferNoise) || missingCopyTokenAddress;
   const sourceTimestamp = newestTimestamp(items);
 
   if (!hasBothDirections) {
@@ -174,21 +181,37 @@ function countDistinctCopyTokens(pairs: TransferPair[], side: TradeSide) {
   ).size;
 }
 
-function isTinyDuplicateCashNoise(pairs: TransferPair[], selected: TransferPair) {
-  const alternates = pairs.filter((pair) => pair !== selected);
-  if (alternates.length === 0) return false;
-
+function isTinyTransferNoise({
+  selected,
+  viablePairs,
+  inbound,
+  outbound
+}: {
+  selected: TransferPair;
+  viablePairs: TransferPair[];
+  inbound: WalletActivity[];
+  outbound: WalletActivity[];
+}) {
   const selectedCopyToken = copyTokenKey(selected);
   const selectedCashToken = cashTokenKey(selected);
   const selectedCashValue = cashToken(selected).value;
   if (!selectedCopyToken || !selectedCashToken || selectedCashValue <= 0) return false;
 
-  return alternates.every((pair) => {
+  const viableAlternatesAreTinyDuplicateCash = viablePairs.filter((pair) => pair !== selected).every((pair) => {
     if (pair.side !== selected.side) return false;
     if (copyTokenKey(pair) !== selectedCopyToken) return false;
     if (cashTokenKey(pair) !== selectedCashToken) return false;
     return cashToken(pair).value <= selectedCashValue * 0.01;
   });
+  if (!viableAlternatesAreTinyDuplicateCash) return false;
+
+  const selectedTransfers = new Set([selected.tokenIn, selected.tokenOut]);
+  return [...inbound, ...outbound]
+    .filter((item) => !selectedTransfers.has(item))
+    .every((item) => {
+      const isCashSideNoise = selected.side === "sell" ? inbound.includes(item) : outbound.includes(item);
+      return isCashSideNoise && item.value <= selectedCashValue * 0.01;
+    });
 }
 
 function copyTokenKey(pair: TransferPair) {

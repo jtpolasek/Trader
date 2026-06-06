@@ -241,6 +241,127 @@ describe("deriveTradeCandidates", () => {
     expect(candidates[0].reason).toContain("Multiple inbound or outbound transfers");
   });
 
+  it("decodes a routed sell with tiny unrelated erc20 reward noise", () => {
+    const candidates = deriveTradeCandidates([
+      activity({
+        hash: "0xsellrewardnoise",
+        asset: "PEPE",
+        contractAddress: "0x0000000000000000000000000000000000001000",
+        value: 1000,
+        fromAddress: wallet,
+        toAddress: "0xrouter"
+      }),
+      activity({
+        hash: "0xsellrewardnoise",
+        asset: "USDC",
+        contractAddress: "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+        value: 92,
+        fromAddress: "0xrouter",
+        toAddress: wallet
+      }),
+      activity({
+        hash: "0xsellrewardnoise",
+        asset: "POINTS",
+        contractAddress: "0x0000000000000000000000000000000000004000",
+        value: 0.25,
+        fromAddress: "0xrewarder",
+        toAddress: wallet
+      })
+    ]);
+
+    expect(candidates[0]).toMatchObject({
+      status: "decoded",
+      confidence: 0.9,
+      side: "sell",
+      tokenInAsset: "PEPE",
+      tokenInAddress: "0x0000000000000000000000000000000000001000",
+      tokenOutAsset: "USDC",
+      tokenOutAmount: 92
+    });
+  });
+
+  it("keeps a routed sell with large alternate erc20 inbound in review", () => {
+    const candidates = deriveTradeCandidates([
+      activity({
+        hash: "0xselllargeinbound",
+        asset: "PEPE",
+        contractAddress: "0x0000000000000000000000000000000000001000",
+        value: 1000,
+        fromAddress: wallet,
+        toAddress: "0xrouter"
+      }),
+      activity({
+        hash: "0xselllargeinbound",
+        asset: "USDC",
+        contractAddress: "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+        value: 92,
+        fromAddress: "0xrouter",
+        toAddress: wallet
+      }),
+      activity({
+        hash: "0xselllargeinbound",
+        asset: "BONUS",
+        contractAddress: "0x0000000000000000000000000000000000004001",
+        value: 40,
+        fromAddress: "0xrewarder",
+        toAddress: wallet
+      })
+    ]);
+
+    expect(candidates[0]).toMatchObject({
+      status: "candidate",
+      confidence: 0.72,
+      side: "sell",
+      tokenInAsset: "PEPE",
+      tokenOutAsset: "USDC"
+    });
+    expect(candidates[0].reason).toContain("Multiple inbound or outbound transfers");
+  });
+
+  it("keeps a routed sell with a mixed buy shape in review", () => {
+    const candidates = deriveTradeCandidates([
+      activity({
+        hash: "0xsellmixedshape",
+        asset: "PEPE",
+        contractAddress: "0x0000000000000000000000000000000000001000",
+        value: 1000,
+        fromAddress: wallet,
+        toAddress: "0xrouter"
+      }),
+      activity({
+        hash: "0xsellmixedshape",
+        asset: "USDC",
+        value: 92,
+        fromAddress: "0xrouter",
+        toAddress: wallet
+      }),
+      activity({
+        hash: "0xsellmixedshape",
+        category: "external",
+        asset: "ETH",
+        contractAddress: "",
+        value: 0.02,
+        fromAddress: wallet,
+        toAddress: "0xrouter"
+      }),
+      activity({
+        hash: "0xsellmixedshape",
+        asset: "NEWTOKEN",
+        contractAddress: "0x0000000000000000000000000000000000004002",
+        value: 500,
+        fromAddress: "0xrouter",
+        toAddress: wallet
+      })
+    ]);
+
+    expect(candidates[0]).toMatchObject({
+      status: "candidate",
+      confidence: 0.4,
+      side: "unknown"
+    });
+    expect(candidates[0].reason).toContain("plausible buy and sell shapes");
+  });
+
   it("decodes a Base native buy from ETH out and token in", () => {
     const candidates = deriveTradeCandidates([
       activity({
