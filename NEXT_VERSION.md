@@ -2,6 +2,21 @@
 
 ## Latest Session Notes
 
+Just shipped (branch `feat/unpriced-0x-fee-detection`): unpriced 0x fee detection. 0x fees
+denominated in a non-USDC token (e.g. a buy-token `zeroExFee`) were silently dropped to `$0`.
+`src/lib/zerox.ts` now has `summarizeDexFees(rawQuote, chainId)` returning both the USDC-priced
+total and an `unpriced` list; `normalizeZeroxPriceQuote` adds an `unpricedFees` field and pushes a
+single "could not value in USD; the real cost is higher than shown" warning that surfaces through
+the existing "Quote warn" trade-row badge (no UI wiring needed). Scope was detection only — actually
+converting the fee to USD, broadening `issues` parsing, and stale-quote infra were explicitly left
+out. Spec/plan: `docs/superpowers/specs/2026-06-05-unpriced-0x-fee-detection-design.md` and
+`docs/superpowers/plans/2026-06-05-unpriced-0x-fee-detection.md`.
+
+Verification after unpriced-fee detection:
+
+- `npm test` passes: 14 test files, 120 tests (new `src/lib/zerox.test.ts` with 10 fee tests).
+- `npx tsc --noEmit` passes.
+
 Recent commits on `main`:
 
 - `feat: reprocess stored wallet activity candidates`
@@ -153,6 +168,7 @@ This is enough to test the workflow, but it should not be treated as reliable Pn
 - `GET /api/ledger/verify` re-derives the expected delta per trade and reports mismatches/missing/orphan entries; the dashboard shows a compact green/red "Ledger ✓ verified" badge.
 - Dashboard portfolio and ledger status refreshes now check `response.ok` before trusting JSON payloads.
 - Dashboard trust signals v1 is shipped: `/api/portfolio` includes `analytics`; the UI shows win rate, fee drag, open exposure, average hold time, realized vs open exposure, and best/worst realized token. The math is covered by `src/lib/portfolioAnalytics.test.ts`.
+- 0x fees denominated in a non-USDC token (e.g. a buy-token `zeroExFee`) are no longer silently dropped to `$0`: `summarizeDexFees` in `src/lib/zerox.ts` returns both the USDC-priced total and an `unpriced` list, and `normalizeZeroxPriceQuote` carries `unpricedFees` plus a "could not value in USD; the real cost is higher than shown" quote warning that surfaces through the existing "Quote warn" badge. Detection only — the fee is not yet converted to USD.
 
 Do not rely on 0x Trade Analytics for arbitrary GMGN wallets. It only returns trades associated with our own 0x API key/app, so it is useful for our app analytics later, not for discovering or replaying random wallet trades.
 
