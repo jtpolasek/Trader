@@ -2,7 +2,7 @@
 
 ## Latest Session Notes
 
-Just shipped on `main`: two wallet parser hardening slices for Build Next #2.
+Just shipped on `main`: three wallet parser hardening slices for Build Next #2.
 
 - `fix: hydrate candidate amounts from raw payloads`: stored Alchemy rows with `value: 0` can now
   recover authoritative transfer amounts from `rawContract.value` + `rawContract.decimal` in
@@ -13,8 +13,11 @@ Just shipped on `main`: two wallet parser hardening slices for Build Next #2.
   cash/native proceeds leg, and a tiny duplicate same-asset refund/noise leg now stay `decoded`
   instead of review-only. Competing same-asset proceeds remain review-only, so unclear sell shapes
   are still guarded.
+- `fix: decode sells with tiny erc20 reward noise`: mixed routed sells with one clear token-out leg,
+  one clear cash/stable proceeds leg, and a tiny unrelated ERC-20 reward/rebate inbound can now stay
+  `decoded`. Large alternate ERC-20 inbound legs and mixed buy+sell shapes remain review-only.
 
-Verification: `npm test` 16 files / 138 tests pass. Pushed to `origin/main`.
+Verification: `npm test` 16 files / 141 tests pass.
 
 Just shipped (branch `feat/live-unrealized-pnl`): live unrealized P&L on open positions. New
 `GET /api/prices?tokens=addr1,addr2&chainId=8453` route fetches spot prices for all open positions
@@ -220,6 +223,7 @@ This is enough to test the workflow, but it should not be treated as reliable Pn
 - Stored Alchemy raw payload hydration now recovers missing transfer direction fields (`category`, `from`, `to`, `blockNum`) in addition to token details and timestamps.
 - Stored Alchemy raw payload hydration now also recovers missing native/ERC-20 amounts from base-unit `rawContract.value` plus `rawContract.decimal`, including 18-decimal defaults for native ETH `external`/`internal` payloads.
 - Noisy sell candidates with one clear copied token and one clear proceeds leg can remain decoded when extra same-asset cash/native legs are tiny duplicate noise; competing proceeds still force manual review.
+- Noisy routed sell candidates can also remain decoded when extra ERC-20 inbound reward/rebate legs are tiny relative to the selected cash/stable proceeds; large alternates and mixed buy/sell shapes still force manual review.
 - Real stored-payload parser fixtures cover a decoded Ethereum ECHO native-ETH buy and a review-only SNOWY native-ETH buy with no token contract address.
 - Stored wallet activity can be reprocessed into missing trade candidates without refetching wallets: `GET /api/candidates/reprocess` previews, `POST /api/candidates/reprocess` inserts only missing rows, and `npm run reprocess:candidates` / `-- --apply` provide a CLI report/apply path.
 - The real local `data/paper-trader.db` has been reprocessed so stored and derived trade candidates both total 481 with no differences.
@@ -285,7 +289,8 @@ Do not rely on 0x Trade Analytics for arbitrary GMGN wallets. It only returns tr
    - Add more live-wallet examples to harden copy sizing around native ETH source trades, Base trades, and sell candidates.
    - DONE: Hydrate missing stored transfer amounts from raw base-unit payloads.
    - DONE: Decode sells with tiny duplicate cash/native refund noise while keeping competing proceeds review-only.
-   - Next parser slice: add more real Base/review-only stored-payload fixtures, especially mixed routed sells with extra ERC-20 reward/rebate legs, and only promote them to decoded when the copied token and proceeds leg are uniquely clear.
+   - DONE: Decode mixed routed sells with tiny ERC-20 reward/rebate noise while keeping large alternate inbound tokens and mixed buy/sell shapes review-only.
+   - Next parser slice: add more real Base stored-payload fixtures from the local DB/re-fetch flow, especially multi-router sells and failed/review-only cases, then compare `npm run reprocess:candidates` preview counts before applying.
    - Keep copy actions manual until candidate confidence is much stronger.
 
 3. Improve copy execution ergonomics.
