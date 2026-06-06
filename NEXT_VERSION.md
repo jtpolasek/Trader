@@ -2,7 +2,27 @@
 
 ## Latest Session Notes
 
-Just shipped (on `main`): internal-transfer sell decode (Build Next #2, first slice). Added `"internal"`
+Just shipped (branch `feat/live-unrealized-pnl`): live unrealized P&L on open positions. New
+`GET /api/prices?tokens=addr1,addr2&chainId=8453` route fetches spot prices for all open positions
+in parallel via `getZeroxPrice` (sells $10 USDC → token, derives `priceUsd = 10 / tokensReceived`).
+Returns partial results — a single bad token returns `null`, the batch still completes. Frontend adds
+three state fields (`positionPrices`, `pricesFetchedAt`, `isPricesStale`), a `fetchPositionPrices()`
+function, a stale timer reusing `isQuoteStale` at 2 minutes, a "Refresh prices" button in the
+Positions panel header, a stale warning banner, and per-position **Current value** and
+**Unrealized P&L** cells (green/red, dash until fetched). No DB writes — prices are ephemeral React
+state only. Known limitation: positions have no stored `chainId`, so the endpoint always queries Base
+(8453); Ethereum positions would return incorrect prices.
+Brainstorm/plan: `docs/brainstorms/2026-06-06-live-unrealized-pnl-brainstorm.md` and
+`docs/superpowers/plans/2026-06-06-feat-live-unrealized-pnl.md`.
+Verification: `npm test` 16 files / 135 tests pass.
+
+Also shipped this session (branch `feat/stale-quote-warning`, merged to `main`): stale quote warning
+in the trade preview panel. After a quote is fetched, a `useEffect` interval fires every 30 seconds
+and checks `isQuoteStale(fetchedAt, now, 120_000)`; once true it renders an amber alert above the
+quote box telling the user prices may have moved. `isQuoteStale` lives in `src/lib/quoteAge.ts` with
+unit tests. The same pattern is now reused by the unrealized P&L feature.
+
+Previously shipped (on `main`): internal-transfer sell decode (Build Next #2, first slice). Added `"internal"`
 to the Alchemy `alchemy_getAssetTransfers` category array in `src/lib/external.ts` so DEX sell ETH
 returns are fetched. Extended `hasMissingTokenDetails` in `src/lib/candidates.ts` to treat `"internal"`
 transfers the same as `"external"` (native ETH, no contract address required) while preserving the
@@ -226,6 +246,9 @@ This is enough to test the workflow, but it should not be treated as reliable Pn
 - 0x fees denominated in a non-USDC token (e.g. a buy-token `zeroExFee`) are no longer silently dropped to `$0`: `summarizeDexFees` in `src/lib/zerox.ts` returns both the USDC-priced total and an `unpriced` list, and the normalized quote carries `unpricedFees`.
 - Unpriced 0x fees are now valued in USD and folded into simulated cost: `valueUnpricedFees` (`src/lib/fees.ts`) prices a fee in WETH/native, USDC, or the traded token against anchors `buildQuotePreview` already has (`ethUsd`, `1`, derived token price), adds the valued amount to `dexFeeUsd`/`totalCostUsd`, and warns only about fees in tokens it still cannot value. `normalizeZeroxPriceQuote` no longer emits the unpriced warning; `buildQuotePreview` owns it and records `valuedFeeUsd`/`valuedFeeTokens`/`stillUnpricedFees` in the quote snapshot (it surfaces through the existing "Quote warn" badge). The fold is conservative: it may slightly overstate cost (0x can net a buy-token fee out of `buyAmount`) but never understates.
 
+- Quote previews now show a stale warning after 2 minutes via `isQuoteStale` in `src/lib/quoteAge.ts`; a `useEffect` interval fires every 30 seconds and sets the stale flag once the threshold is crossed.
+- Open positions now show live unrealized P&L. `GET /api/prices?tokens=...&chainId=8453` fetches spot prices in parallel via `getZeroxPrice` (USDC→token, $10 sell amount); the Positions panel has a "Refresh prices" button, per-card Current value and Unrealized P&L fields (green/red), and a 2-minute stale warning. Prices are ephemeral React state — no DB writes.
+
 Do not rely on 0x Trade Analytics for arbitrary GMGN wallets. It only returns trades associated with our own 0x API key/app, so it is useful for our app analytics later, not for discovering or replaying random wallet trades.
 
 ## Build Next
@@ -236,7 +259,7 @@ Do not rely on 0x Trade Analytics for arbitrary GMGN wallets. It only returns tr
    - Continue refining quote/debug metadata and trade-row warning badges as real payloads reveal missing fields.
    - Add optional `/swap/allowance-holder/quote` firm-simulation mode only after `/price` previews are stable.
    - Keep adding tests for new 0x issue and fee shapes as they appear.
-   - Add stale-quote warnings if preview and execution become separate enough that quotes can sit for a while.
+   - DONE: Stale-quote warning in the preview panel after 2 minutes (`src/lib/quoteAge.ts`, reused by unrealized P&L prices).
 
 2. Improve wallet activity parsing into candidate swaps.
    - Continue tightening token direction inference with more real wallet examples and stored raw payloads.
@@ -254,6 +277,12 @@ Do not rely on 0x Trade Analytics for arbitrary GMGN wallets. It only returns tr
 
 5. Improve dashboard trust signals.
    - DONE: Trust signals v1 shipped. `derivePortfolioAnalytics` computes closed trade count, win rate, fee drag, FIFO average hold time, open exposure, realized PnL, and best/worst realized token; the dashboard renders a compact trust strip plus a small "Trust signals" panel.
+   - DONE: Live unrealized P&L on open positions. "Refresh prices" button fetches spot prices via `/api/prices`, shows Current value and Unrealized P&L per position card, with a 2-minute stale warning.
+   - Follow-on: store `chainId` on trades/tokens so `/api/prices` can query the correct chain per position instead of defaulting to Base for all.
+   - Follow-on: surface unrealized P&L in the top-level dashboard metrics row (total open gain/loss).
+   - Follow-on: auto-refresh prices on an opt-in interval instead of manual button only.
+   - Follow-on: wallet performance scoring — score each watched wallet by copy-trade outcomes (win rate, realized PnL, fee drag) so the watchlist shows who is worth copying.
+   - Follow-on: candidate list filtering and pagination — sort/filter by trust/side/status and page through all candidates instead of the current hard cap of 5.
    - Continue refining fee breakdown details as more execution costs are modeled.
    - Add persisted copied/skipped/failed candidate counts across wallet fetches if the activity view becomes multi-wallet.
    - Continue adding warnings for low liquidity, unreliable 0x simulation, stale quote assumptions, and unsupported trade patterns.
