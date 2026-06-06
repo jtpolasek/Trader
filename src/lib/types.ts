@@ -10,6 +10,7 @@ export type Wallet = {
 
 export type Token = {
   address: string;
+  chainId: number;
   symbol: string;
   name: string;
   decimals: number;
@@ -18,6 +19,7 @@ export type Token = {
 
 export type Position = {
   tokenAddress: string;
+  chainId: number;
   symbol: string;
   name: string;
   decimals: number;
@@ -33,6 +35,7 @@ export type Trade = {
   id: string;
   side: TradeSide;
   tokenAddress: string;
+  chainId: number;
   symbol: string;
   quantity: number;
   priceUsd: number;
@@ -132,7 +135,7 @@ export type CopySettings = {
   blocklist: string[];
 };
 
-export type TradeInput = Omit<Trade, "id" | "createdAt" | "symbol">;
+export type TradeInput = Omit<Trade, "id" | "createdAt" | "symbol" | "chainId"> & { chainId?: number };
 
 export type TradeLedgerInput = Pick<
   Trade,
@@ -162,6 +165,7 @@ export type LedgerEntry = LedgerDelta & {
   id: string;
   tradeId: string;
   tokenAddress: string;
+  chainId: number;
   createdAt: string;
 };
 

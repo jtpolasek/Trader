@@ -39,6 +39,7 @@ function migrate(database: DatabaseSync) {
 
     CREATE TABLE IF NOT EXISTS tokens (
       address TEXT PRIMARY KEY,
+      chain_id INTEGER NOT NULL DEFAULT 1,
       symbol TEXT NOT NULL,
       name TEXT NOT NULL,
       decimals INTEGER NOT NULL,
@@ -49,6 +50,7 @@ function migrate(database: DatabaseSync) {
       id TEXT PRIMARY KEY,
       side TEXT NOT NULL,
       token_address TEXT NOT NULL,
+      chain_id INTEGER NOT NULL DEFAULT 1,
       quantity REAL NOT NULL,
       price_usd REAL NOT NULL,
       notional_usd REAL NOT NULL,
@@ -67,6 +69,7 @@ function migrate(database: DatabaseSync) {
       entry_type TEXT NOT NULL,
       trade_id TEXT NOT NULL,
       token_address TEXT NOT NULL,
+      chain_id INTEGER NOT NULL DEFAULT 1,
       cash_delta REAL NOT NULL,
       quantity_delta REAL NOT NULL,
       cost_basis_delta REAL NOT NULL,
@@ -151,6 +154,10 @@ function migrate(database: DatabaseSync) {
     );
   `);
 
+  addColumnIfMissing(database, "tokens", "chain_id", "INTEGER NOT NULL DEFAULT 1");
+  addColumnIfMissing(database, "trades", "chain_id", "INTEGER NOT NULL DEFAULT 1");
+  addColumnIfMissing(database, "ledger_entries", "chain_id", "INTEGER NOT NULL DEFAULT 1");
+  backfillTradeChainIds(database);
   addColumnIfMissing(database, "wallet_activity", "chain_id", "INTEGER NOT NULL DEFAULT 1");
   addColumnIfMissing(database, "wallet_activity", "chain_name", "TEXT NOT NULL DEFAULT 'Ethereum'");
   addColumnIfMissing(database, "wallet_activity", "contract_address", "TEXT NOT NULL DEFAULT ''");
@@ -233,7 +240,7 @@ function backfillLedger(database: DatabaseSync) {
 
   const trades = database
     .prepare(
-      `SELECT id, side, token_address, quantity, price_usd, notional_usd, gas_usd, slippage_usd, dex_fee_usd,
+      `SELECT id, side, token_address, chain_id, quantity, price_usd, notional_usd, gas_usd, slippage_usd, dex_fee_usd,
               total_cost_usd, realized_pnl_usd, created_at
        FROM trades
        ORDER BY created_at ASC`
@@ -243,8 +250,8 @@ function backfillLedger(database: DatabaseSync) {
 
   const insert = database.prepare(
     `INSERT INTO ledger_entries
-      (id, entry_type, trade_id, token_address, cash_delta, quantity_delta, cost_basis_delta, realized_pnl_delta, fee_delta, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      (id, entry_type, trade_id, token_address, chain_id, cash_delta, quantity_delta, cost_basis_delta, realized_pnl_delta, fee_delta, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
 
   database.exec("BEGIN");
@@ -266,6 +273,7 @@ function backfillLedger(database: DatabaseSync) {
         delta.entryType,
         String(row.id),
         String(row.token_address),
+        Number(row.chain_id),
         delta.cashDelta,
         delta.quantityDelta,
         delta.costBasisDelta,
@@ -278,5 +286,32 @@ function backfillLedger(database: DatabaseSync) {
   } catch (error) {
     database.exec("ROLLBACK");
     throw error;
+  }
+}
+
+function backfillTradeChainIds(database: DatabaseSync) {
+  const trades = database
+    .prepare("SELECT id, token_address, quote_snapshot FROM trades")
+    .all() as Array<{ id: string; token_address: string; quote_snapshot: string }>;
+  const updateTrade = database.prepare("UPDATE trades SET chain_id = ? WHERE id = ?");
+  const updateToken = database.prepare("UPDATE tokens SET chain_id = ? WHERE address = ?");
+  const updateLedger = database.prepare("UPDATE ledger_entries SET chain_id = ? WHERE trade_id = ?");
+
+  for (const trade of trades) {
+    const chainId = readChainIdFromSnapshot(trade.quote_snapshot);
+    if (!chainId) continue;
+    updateTrade.run(chainId, trade.id);
+    updateToken.run(chainId, trade.token_address);
+    updateLedger.run(chainId, trade.id);
+  }
+}
+
+function readChainIdFromSnapshot(raw: string) {
+  try {
+    const parsed = JSON.parse(raw) as { chainId?: unknown; copiedFrom?: { chainId?: unknown } };
+    const value = parsed.chainId ?? parsed.copiedFrom?.chainId;
+    return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : null;
+  } catch {
+    return null;
   }
 }

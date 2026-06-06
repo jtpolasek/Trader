@@ -26,7 +26,12 @@ export async function POST(request: Request) {
   try {
     const body = schema.parse(await request.json());
     const tokenAddress = normalizeAddress(body.tokenAddress);
-    const token = getToken(tokenAddress) ?? upsertToken(await resolveTokenFromAlchemy(tokenAddress, body.chainId));
+    const chainId = body.chainId;
+    const storedToken = getToken(tokenAddress);
+    const token =
+      storedToken && (!chainId || storedToken.chainId === chainId)
+        ? storedToken
+        : upsertToken(await resolveTokenFromAlchemy(tokenAddress, chainId));
     const preview = await buildQuotePreview({
       side: body.side,
       token,
@@ -44,6 +49,7 @@ export async function POST(request: Request) {
     const tradeId = recordTrade({
       side: preview.side,
       tokenAddress,
+      chainId: preview.quoteSnapshot.chainId as number,
       quantity: preview.quantity,
       priceUsd: preview.priceUsd,
       notionalUsd: preview.notionalUsd,

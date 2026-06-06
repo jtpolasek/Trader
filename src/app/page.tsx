@@ -20,7 +20,7 @@ import {
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { candidateCopyTokenAddress, classifyCandidateTrust } from "@/lib/candidateTrust";
 import { isQuoteStale } from "@/lib/quoteAge";
-import { BASE_CHAIN_ID, DEFAULT_COPY_SETTINGS, DEFAULT_GAS_BUFFER_BPS, DEFAULT_SLIPPAGE_BPS } from "@/lib/constants";
+import { DEFAULT_COPY_SETTINGS, DEFAULT_GAS_BUFFER_BPS, DEFAULT_SLIPPAGE_BPS } from "@/lib/constants";
 import { formatNumber, formatUsd, formatUsdPrice } from "@/lib/money";
 import type {
   CopySettings,
@@ -330,15 +330,25 @@ export default function Home() {
     setError("");
     setIsPricesStale(false);
     try {
-      const tokens = data.positions.map((p) => p.tokenAddress).join(",");
-      const response = await fetch(`/api/prices?tokens=${tokens}&chainId=${BASE_CHAIN_ID}`, { cache: "no-store" });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error ?? "Could not fetch prices.");
-      const raw = payload.prices as Record<string, number | null>;
+      const byChain = new Map<number, string[]>();
+      for (const position of data.positions) {
+        byChain.set(position.chainId, [...(byChain.get(position.chainId) ?? []), position.tokenAddress]);
+      }
+      const payloads = await Promise.all(
+        Array.from(byChain.entries()).map(async ([chainId, addresses]) => {
+          const tokens = addresses.join(",");
+          const response = await fetch(`/api/prices?tokens=${tokens}&chainId=${chainId}`, { cache: "no-store" });
+          const payload = await response.json();
+          if (!response.ok) throw new Error(payload.error ?? "Could not fetch prices.");
+          return payload as { prices: Record<string, number | null> };
+        })
+      );
       const resolved: Record<string, number> = {};
-      for (const [addr, price] of Object.entries(raw)) {
-        if (typeof price === "number" && Number.isFinite(price) && price > 0) {
-          resolved[addr] = price;
+      for (const payload of payloads) {
+        for (const [addr, price] of Object.entries(payload.prices)) {
+          if (typeof price === "number" && Number.isFinite(price) && price > 0) {
+            resolved[addr] = price;
+          }
         }
       }
       setPositionPrices(resolved);

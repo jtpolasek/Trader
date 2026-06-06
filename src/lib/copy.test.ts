@@ -134,6 +134,7 @@ describe("sizeCopyTrade", () => {
   it("caps copied sells to the current position quantity", () => {
     const position: Position = {
       tokenAddress: "0x0000000000000000000000000000000000001000",
+      chainId: 8453,
       symbol: "TOKEN",
       name: "TOKEN",
       decimals: 18,

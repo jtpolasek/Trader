@@ -58,6 +58,23 @@ describe("recordTrade", () => {
     expect(listTrades()).toHaveLength(0);
     expect(listLedgerEntries()).toHaveLength(0);
   });
+
+  it("persists chain IDs through tokens, trades, ledger entries, and positions", async () => {
+    const { listLedgerEntries, listPositions, listTrades, recordTrade, upsertToken } = await import("./repositories");
+    const token = upsertToken({
+      address: "0x0000000000000000000000000000000000000845",
+      chainId: 8453,
+      symbol: "BASE",
+      name: "Base Token",
+      decimals: 18
+    });
+
+    recordTrade(tradeInput({ tokenAddress: token.address, chainId: 8453, quoteSnapshot: JSON.stringify({ chainId: 8453 }) }));
+
+    expect(listTrades()[0]).toMatchObject({ tokenAddress: token.address, chainId: 8453 });
+    expect(listLedgerEntries()[0]).toMatchObject({ tokenAddress: token.address, chainId: 8453 });
+    expect(listPositions()[0]).toMatchObject({ tokenAddress: token.address, chainId: 8453 });
+  });
 });
 
 describe("trade candidate copy results", () => {
@@ -555,7 +572,7 @@ describe("importLocalData", () => {
 
     // Diverge: add a second wallet, token, and trade so state is now bundle + extra.
     const extraToken = repos.upsertToken({
-      address: "0x00000000000000000000000000000000000000ff", symbol: "EXTRA", name: "Extra", decimals: 18
+      address: "0x00000000000000000000000000000000000000ff", chainId: 1, symbol: "EXTRA", name: "Extra", decimals: 18
     });
     repos.upsertWallet({ address: "0xother", label: "Other", notes: "", gmgnUrl: "" });
     repos.recordTrade(tradeInput({ tokenAddress: extraToken.address }));
@@ -572,9 +589,10 @@ describe("importLocalData", () => {
   });
 });
 
-function seedToken(upsertToken: (input: { address: string; symbol: string; name: string; decimals: number }) => unknown) {
+function seedToken(upsertToken: (input: { address: string; chainId: number; symbol: string; name: string; decimals: number }) => unknown) {
   const token = {
     address: "0x0000000000000000000000000000000000000001",
+    chainId: 1,
     symbol: "TKN",
     name: "Token",
     decimals: 18
@@ -587,6 +605,7 @@ function tradeInput(overrides: Partial<TradeInput>): TradeInput {
   return {
     side: "buy",
     tokenAddress: "0x0000000000000000000000000000000000000001",
+    chainId: 1,
     quantity: 10,
     priceUsd: 10,
     notionalUsd: 100,

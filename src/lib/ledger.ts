@@ -41,6 +41,7 @@ export function derivePortfolioTotals(entries: LedgerEntry[], startingCashUsd: n
 
 export type PositionAggregate = {
   tokenAddress: string;
+  chainId: number;
   quantity: number;
   averageEntryUsd: number;
   costBasisUsd: number;
@@ -59,6 +60,7 @@ export function derivePositions(entries: LedgerEntry[]): PositionAggregate[] {
     if (!current) {
       current = {
         tokenAddress: item.tokenAddress,
+        chainId: item.chainId,
         quantity: 0,
         averageEntryUsd: 0,
         costBasisUsd: 0,

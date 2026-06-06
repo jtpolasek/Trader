@@ -7,6 +7,7 @@ function entry(overrides: Partial<LedgerEntry>): LedgerEntry {
     id: "e",
     tradeId: "t",
     tokenAddress: "0xtoken",
+    chainId: 1,
     entryType: "buy",
     cashDelta: 0,
     quantityDelta: 0,

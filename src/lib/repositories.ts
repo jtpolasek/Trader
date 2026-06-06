@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { classifyCandidateTrust } from "./candidateTrust";
 import { deriveTradeCandidates } from "./candidates";
-import { DEFAULT_COPY_SETTINGS } from "./constants";
+import { DEFAULT_COPY_SETTINGS, ETH_CHAIN_ID } from "./constants";
 import { getDb } from "./db";
 import type { CopyAttemptStatus, CopySettings, LedgerEntry, Portfolio, Position, Token, Trade, TradeCandidate, TradeInput, TradeLedgerInput, Wallet, WalletActivity } from "./types";
 import { derivePortfolioTotals, derivePositions, ledgerDeltaFromTrade } from "./ledger";
@@ -158,19 +158,21 @@ export function getToken(address: string) {
   return row ? rowToToken(row) : null;
 }
 
-export function upsertToken(input: Omit<Token, "createdAt">) {
+export function upsertToken(input: Omit<Token, "createdAt" | "chainId"> & { chainId?: number }) {
   const createdAt = now();
+  const chainId = input.chainId ?? ETH_CHAIN_ID;
   getDb()
     .prepare(
-      `INSERT INTO tokens (address, symbol, name, decimals, created_at)
-       VALUES (?, ?, ?, ?, ?)
+      `INSERT INTO tokens (address, chain_id, symbol, name, decimals, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT(address) DO UPDATE SET
+        chain_id = excluded.chain_id,
         symbol = excluded.symbol,
         name = excluded.name,
         decimals = excluded.decimals`
     )
-    .run(input.address, input.symbol, input.name, input.decimals, createdAt);
-  return { ...input, createdAt };
+    .run(input.address, chainId, input.symbol, input.name, input.decimals, createdAt);
+  return { ...input, chainId, createdAt };
 }
 
 export function listPositions(): Position[] {
@@ -181,6 +183,7 @@ export function listPositions(): Position[] {
     if (!token) continue;
     positions.push({
       tokenAddress: aggregate.tokenAddress,
+      chainId: aggregate.chainId,
       symbol: token.symbol,
       name: token.name,
       decimals: token.decimals,
@@ -217,6 +220,7 @@ export function getPosition(tokenAddress: string) {
 
   return {
     tokenAddress,
+    chainId: token.chainId,
     symbol: token.symbol,
     name: token.name,
     decimals: token.decimals,
@@ -233,16 +237,18 @@ export function getPosition(tokenAddress: string) {
 function insertTrade(input: TradeInput) {
   const id = randomUUID();
   const createdAt = now();
+  const chainId = input.chainId ?? ETH_CHAIN_ID;
   getDb()
     .prepare(
       `INSERT INTO trades
-        (id, side, token_address, quantity, price_usd, notional_usd, gas_usd, slippage_usd, dex_fee_usd, total_cost_usd, realized_pnl_usd, quote_snapshot, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        (id, side, token_address, chain_id, quantity, price_usd, notional_usd, gas_usd, slippage_usd, dex_fee_usd, total_cost_usd, realized_pnl_usd, quote_snapshot, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       id,
       input.side,
       input.tokenAddress,
+      chainId,
       input.quantity,
       input.priceUsd,
       input.notionalUsd,
@@ -259,17 +265,19 @@ function insertTrade(input: TradeInput) {
 
 function insertLedgerEntryRow(tradeId: string, tokenAddress: string, input: TradeInput) {
   const delta = ledgerDeltaFromTrade(input);
+  const chainId = input.chainId ?? ETH_CHAIN_ID;
   getDb()
     .prepare(
       `INSERT INTO ledger_entries
-        (id, entry_type, trade_id, token_address, cash_delta, quantity_delta, cost_basis_delta, realized_pnl_delta, fee_delta, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        (id, entry_type, trade_id, token_address, chain_id, cash_delta, quantity_delta, cost_basis_delta, realized_pnl_delta, fee_delta, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       randomUUID(),
       delta.entryType,
       tradeId,
       tokenAddress,
+      chainId,
       delta.cashDelta,
       delta.quantityDelta,
       delta.costBasisDelta,
@@ -302,6 +310,7 @@ export function listLedgerEntries(): LedgerEntry[] {
     id: String(row.id),
     tradeId: String(row.trade_id),
     tokenAddress: String(row.token_address),
+    chainId: Number(row.chain_id),
     entryType: String(row.entry_type) as LedgerEntry["entryType"],
     cashDelta: Number(row.cash_delta),
     quantityDelta: Number(row.quantity_delta),
@@ -388,32 +397,32 @@ export function importLocalData(bundle: ImportBundle): { portfolio: Portfolio; s
     }
 
     const insertTokenRow = db.prepare(
-      "INSERT INTO tokens (address, symbol, name, decimals, created_at) VALUES (?, ?, ?, ?, ?)"
+      "INSERT INTO tokens (address, chain_id, symbol, name, decimals, created_at) VALUES (?, ?, ?, ?, ?, ?)"
     );
     for (const t of bundle.tokens) {
-      insertTokenRow.run(t.address, t.symbol, t.name, t.decimals, t.createdAt);
+      insertTokenRow.run(t.address, t.chainId, t.symbol, t.name, t.decimals, t.createdAt);
     }
 
     const insertTradeRow = db.prepare(
       `INSERT INTO trades
-        (id, side, token_address, quantity, price_usd, notional_usd, gas_usd, slippage_usd, dex_fee_usd, total_cost_usd, realized_pnl_usd, quote_snapshot, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        (id, side, token_address, chain_id, quantity, price_usd, notional_usd, gas_usd, slippage_usd, dex_fee_usd, total_cost_usd, realized_pnl_usd, quote_snapshot, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
     for (const tr of bundle.trades) {
       insertTradeRow.run(
-        tr.id, tr.side, tr.tokenAddress, tr.quantity, tr.priceUsd, tr.notionalUsd, tr.gasUsd,
+        tr.id, tr.side, tr.tokenAddress, tr.chainId, tr.quantity, tr.priceUsd, tr.notionalUsd, tr.gasUsd,
         tr.slippageUsd, tr.dexFeeUsd, tr.totalCostUsd, tr.realizedPnlUsd, tr.quoteSnapshot, tr.createdAt
       );
     }
 
     const insertLedger = db.prepare(
       `INSERT INTO ledger_entries
-        (id, entry_type, trade_id, token_address, cash_delta, quantity_delta, cost_basis_delta, realized_pnl_delta, fee_delta, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        (id, entry_type, trade_id, token_address, chain_id, cash_delta, quantity_delta, cost_basis_delta, realized_pnl_delta, fee_delta, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
     for (const e of bundle.ledgerEntries) {
       insertLedger.run(
-        e.id, e.entryType, e.tradeId, e.tokenAddress, e.cashDelta, e.quantityDelta,
+        e.id, e.entryType, e.tradeId, e.tokenAddress, e.chainId, e.cashDelta, e.quantityDelta,
         e.costBasisDelta, e.realizedPnlDelta, e.feeDelta, e.createdAt
       );
     }
@@ -866,6 +875,7 @@ export function updateTradeCandidateCopyResult(input: {
 function rowToToken(row: Row): Token {
   return {
     address: String(row.address),
+    chainId: Number(row.chain_id),
     symbol: String(row.symbol),
     name: String(row.name),
     decimals: Number(row.decimals),
@@ -882,6 +892,7 @@ function rowToTrade(row: Row): Trade {
     id: String(row.id),
     side: String(row.side) as Trade["side"],
     tokenAddress: String(row.token_address),
+    chainId: Number(row.chain_id),
     symbol: String(row.symbol),
     quantity: Number(row.quantity),
     priceUsd: Number(row.price_usd),

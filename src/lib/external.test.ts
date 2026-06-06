@@ -317,6 +317,7 @@ describe("buildQuotePreview unpriced fee valuation", () => {
   const BUY_TOKEN = "0xbuytoken0000000000000000000000000000beef";
   const token = {
     address: BUY_TOKEN,
+    chainId: 1,
     symbol: "BUY",
     name: "Buy Token",
     decimals: 18,

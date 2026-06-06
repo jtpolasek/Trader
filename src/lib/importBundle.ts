@@ -10,6 +10,7 @@ const walletSchema = z.object({
 
 const tokenSchema = z.object({
   address: z.string(),
+  chainId: z.number().optional().default(1),
   symbol: z.string(),
   name: z.string(),
   decimals: z.number(),
@@ -20,6 +21,7 @@ const tradeSchema = z.object({
   id: z.string(),
   side: z.enum(["buy", "sell"]),
   tokenAddress: z.string(),
+  chainId: z.number().optional().default(1),
   quantity: z.number(),
   priceUsd: z.number(),
   notionalUsd: z.number(),
@@ -36,6 +38,7 @@ const ledgerEntrySchema = z.object({
   id: z.string(),
   tradeId: z.string(),
   tokenAddress: z.string(),
+  chainId: z.number().optional().default(1),
   entryType: z.enum(["buy", "sell", "total_loss"]),
   cashDelta: z.number(),
   quantityDelta: z.number(),

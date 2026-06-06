@@ -4,6 +4,7 @@ import type { Portfolio, Position, QuotePreview, Token } from "./types";
 
 const token: Token = {
   address: "0xtoken",
+  chainId: 1,
   symbol: "TKN",
   name: "Token",
   decimals: 18,
@@ -132,6 +133,7 @@ describe("applyTotalLossToState", () => {
 function basePosition(): Position {
   return {
     tokenAddress: token.address,
+    chainId: token.chainId,
     symbol: token.symbol,
     name: token.name,
     decimals: token.decimals,

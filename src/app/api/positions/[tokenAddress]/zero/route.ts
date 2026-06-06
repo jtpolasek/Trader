@@ -22,6 +22,7 @@ export async function POST(_request: Request, context: { params: Promise<{ token
     const tradeId = recordTrade({
       side: "sell",
       tokenAddress,
+      chainId: position.chainId,
       quantity: position.quantity,
       priceUsd: 0,
       notionalUsd: 0,
@@ -35,6 +36,7 @@ export async function POST(_request: Request, context: { params: Promise<{ token
         action: "mark-total-loss",
         reason: "Position was manually marked as a total loss because no usable liquidity/route was available.",
         tokenAddress,
+        chainId: position.chainId,
         quantity: position.quantity,
         costBasisUsd: position.costBasisUsd,
         createdAt: new Date().toISOString()

@@ -105,6 +105,7 @@ function trade(overrides: Partial<Trade>): Trade {
     id: "trade",
     side: "buy",
     tokenAddress: "0x0000000000000000000000000000000000000001",
+    chainId: 1,
     symbol: "TKN",
     quantity: 10,
     priceUsd: 10,
@@ -123,6 +124,7 @@ function trade(overrides: Partial<Trade>): Trade {
 function position(overrides: Partial<Position>): Position {
   return {
     tokenAddress: "0x0000000000000000000000000000000000000001",
+    chainId: 1,
     symbol: "TKN",
     name: "Token",
     decimals: 18,

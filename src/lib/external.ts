@@ -50,6 +50,7 @@ export async function resolveTokenFromAlchemy(address: string, chainId = ETH_CHA
     const token = cachedUsdc ? chainTokens.usdc : chainTokens.weth;
     return {
       address: token.address.toLowerCase(),
+      chainId,
       symbol: token.symbol,
       name: token.symbol,
       decimals: token.decimals,
@@ -97,6 +98,7 @@ export async function resolveTokenFromAlchemy(address: string, chainId = ETH_CHA
 
   return {
     address: tokenAddress,
+    chainId,
     symbol: metadata.symbol,
     name: metadata.name || metadata.symbol,
     decimals: metadata.decimals,
@@ -448,6 +450,7 @@ async function resolveTokenFromErc20Calls(tokenAddress: string, chainId: number,
 
   return {
     address: tokenAddress,
+    chainId,
     symbol,
     name: name || symbol,
     decimals,

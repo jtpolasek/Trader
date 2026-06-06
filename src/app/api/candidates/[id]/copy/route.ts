@@ -33,7 +33,11 @@ export async function POST(_request: Request, context: { params: Promise<{ id: s
     const position = tokenAddress ? getPosition(tokenAddress) : null;
     const nativeUsd = await getNativeUsdPrice(candidate.chainId);
     const sized = sizeCopyTrade({ candidate, settings, nativeUsd, position });
-    const token = getToken(sized.tokenAddress) ?? upsertToken(await resolveCopyToken(candidate, sized.tokenAddress));
+    const storedToken = getToken(sized.tokenAddress);
+    const token =
+      storedToken && storedToken.chainId === candidate.chainId
+        ? storedToken
+        : upsertToken(await resolveCopyToken(candidate, sized.tokenAddress));
     let preview = await buildQuotePreview({
       side: sized.side,
       token,
@@ -105,6 +109,7 @@ export async function POST(_request: Request, context: { params: Promise<{ id: s
     const tradeId = recordTrade({
       side: preview.side,
       tokenAddress: sized.tokenAddress,
+      chainId: candidate.chainId,
       quantity: preview.quantity,
       priceUsd: preview.priceUsd,
       notionalUsd: preview.notionalUsd,
@@ -174,6 +179,7 @@ async function resolveCopyToken(candidate: TradeCandidate, tokenAddress: string)
     if (!hint) throw error;
     return {
       address: tokenAddress.toLowerCase(),
+      chainId: candidate.chainId,
       symbol: hint.symbol,
       name: hint.name,
       decimals: hint.decimals
