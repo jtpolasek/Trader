@@ -2,20 +2,30 @@
 
 ## Latest Session Notes
 
-Just shipped (branch `feat/unpriced-0x-fee-detection`): unpriced 0x fee detection. 0x fees
-denominated in a non-USDC token (e.g. a buy-token `zeroExFee`) were silently dropped to `$0`.
-`src/lib/zerox.ts` now has `summarizeDexFees(rawQuote, chainId)` returning both the USDC-priced
-total and an `unpriced` list; `normalizeZeroxPriceQuote` adds an `unpricedFees` field and pushes a
-single "could not value in USD; the real cost is higher than shown" warning that surfaces through
-the existing "Quote warn" trade-row badge (no UI wiring needed). Scope was detection only — actually
-converting the fee to USD, broadening `issues` parsing, and stale-quote infra were explicitly left
-out. Spec/plan: `docs/superpowers/specs/2026-06-05-unpriced-0x-fee-detection-design.md` and
-`docs/superpowers/plans/2026-06-05-unpriced-0x-fee-detection.md`.
+Just shipped (branch `feat/value-unpriced-0x-fees`): valuing unpriced 0x fees in USD, built on top
+of the earlier detection slice. A pure `valueUnpricedFees(unpriced, anchors)` in `src/lib/fees.ts`
+prices a fee denominated in WETH/native, USDC, or the traded token against anchors `buildQuotePreview`
+already holds (`ethUsd`, `1`, and the derived token price), and `buildQuotePreview` folds the valued
+USD into `dexFeeUsd`/`totalCostUsd`. Warning ownership moved up: `normalizeZeroxPriceQuote` keeps the
+`unpricedFees` data field but no longer emits the warning; `buildQuotePreview` owns the "could not
+value in USD" warning and only fires it for fees in tokens it still cannot price. The snapshot now
+carries `valuedFeeUsd`, `valuedFeeTokens`, and `stillUnpricedFees`. The fold is deliberately
+conservative (it can only overstate cost slightly, never understate) because 0x may already net a
+buy-token fee out of `buyAmount`. Spec/plan:
+`docs/superpowers/specs/2026-06-05-value-unpriced-0x-fees-design.md` and
+`docs/superpowers/plans/2026-06-05-value-unpriced-0x-fees.md`.
 
-Verification after unpriced-fee detection:
+Verification after fee valuation:
 
-- `npm test` passes: 14 test files, 120 tests (new `src/lib/zerox.test.ts` with 10 fee tests).
+- `npm test` passes: 15 test files, 130 tests (new `src/lib/fees.test.ts` with 7 tests; new
+  `buildQuotePreview` integration tests in `src/lib/external.test.ts`).
 - `npx tsc --noEmit` passes.
+
+The earlier detection slice (branch `feat/unpriced-0x-fee-detection`, merged) added
+`summarizeDexFees(rawQuote, chainId)` returning the USDC-priced total plus an `unpriced` list, and
+the `unpricedFees` field on the normalized quote. Spec/plan:
+`docs/superpowers/specs/2026-06-05-unpriced-0x-fee-detection-design.md` and
+`docs/superpowers/plans/2026-06-05-unpriced-0x-fee-detection.md`.
 
 Recent commits on `main`:
 
@@ -168,7 +178,8 @@ This is enough to test the workflow, but it should not be treated as reliable Pn
 - `GET /api/ledger/verify` re-derives the expected delta per trade and reports mismatches/missing/orphan entries; the dashboard shows a compact green/red "Ledger ✓ verified" badge.
 - Dashboard portfolio and ledger status refreshes now check `response.ok` before trusting JSON payloads.
 - Dashboard trust signals v1 is shipped: `/api/portfolio` includes `analytics`; the UI shows win rate, fee drag, open exposure, average hold time, realized vs open exposure, and best/worst realized token. The math is covered by `src/lib/portfolioAnalytics.test.ts`.
-- 0x fees denominated in a non-USDC token (e.g. a buy-token `zeroExFee`) are no longer silently dropped to `$0`: `summarizeDexFees` in `src/lib/zerox.ts` returns both the USDC-priced total and an `unpriced` list, and `normalizeZeroxPriceQuote` carries `unpricedFees` plus a "could not value in USD; the real cost is higher than shown" quote warning that surfaces through the existing "Quote warn" badge. Detection only — the fee is not yet converted to USD.
+- 0x fees denominated in a non-USDC token (e.g. a buy-token `zeroExFee`) are no longer silently dropped to `$0`: `summarizeDexFees` in `src/lib/zerox.ts` returns both the USDC-priced total and an `unpriced` list, and the normalized quote carries `unpricedFees`.
+- Unpriced 0x fees are now valued in USD and folded into simulated cost: `valueUnpricedFees` (`src/lib/fees.ts`) prices a fee in WETH/native, USDC, or the traded token against anchors `buildQuotePreview` already has (`ethUsd`, `1`, derived token price), adds the valued amount to `dexFeeUsd`/`totalCostUsd`, and warns only about fees in tokens it still cannot value. `normalizeZeroxPriceQuote` no longer emits the unpriced warning; `buildQuotePreview` owns it and records `valuedFeeUsd`/`valuedFeeTokens`/`stillUnpricedFees` in the quote snapshot (it surfaces through the existing "Quote warn" badge). The fold is conservative: it may slightly overstate cost (0x can net a buy-token fee out of `buyAmount`) but never understates.
 
 Do not rely on 0x Trade Analytics for arbitrary GMGN wallets. It only returns trades associated with our own 0x API key/app, so it is useful for our app analytics later, not for discovering or replaying random wallet trades.
 
