@@ -34,8 +34,9 @@ JSON snapshots of the paper-only state: trades, ledger entries, quote previews, 
 copy metadata. New routes `GET/POST /api/portfolio/archives` list/create archives, and
 `POST /api/portfolio/archives/[id]/restore` restores an archive transactionally while preserving
 watched wallets, raw wallet activity, candidates, and settings. The dashboard has Archive paper and
-Restore latest controls. Restore clears current paper trades/ledger/quotes, restores the archived
-paper state, and reinstates copied candidate links saved in the archive.
+archive management controls: select an archive, restore it, rename it, or delete it. Restore clears
+current paper trades/ledger/quotes, restores the archived paper state, and reinstates copied
+candidate links saved in the archive.
 Verification: `npx tsc --noEmit`, `npm test` 16 files / 143 tests, and `npm run build` pass.
 
 Just shipped (branch `feat/live-unrealized-pnl`): live unrealized P&L on open positions. New
@@ -337,7 +338,7 @@ Do not rely on 0x Trade Analytics for arbitrary GMGN wallets. It only returns tr
 6. Improve persistence and data operations.
    - DONE: Local import/restore for the export bundle. Transactional replace-all guarded by a confirmation summary; validated with zod; ledger re-verified after import. See `src/lib/importBundle.ts`, `importLocalData` in `repositories.ts`, and `/api/import` + `/api/import/preview`.
    - DONE: Add an archive workflow for paper portfolios so testing bad trades does not require manual DB cleanup. Archives are local SQLite snapshots of paper trades/ledger/quotes plus copied-candidate links.
-   - Follow-on: add archive delete/rename controls if the local archive list starts getting noisy.
+   - DONE: Archive management polish: choose any local archive, restore it, rename it, or delete it from the dashboard.
    - Consider multi-portfolio support before any scheduled polling.
 
 ## Longer-Term Feature List
