@@ -19,6 +19,16 @@ Just shipped on `main`: three wallet parser hardening slices for Build Next #2.
 
 Verification: `npm test` 16 files / 141 tests pass.
 
+Just shipped on `main`: chain IDs are now stored through the paper portfolio path so live
+unrealized P&L prices use the correct network instead of defaulting every open position to Base.
+Tokens, trades, and ledger entries have `chain_id` columns with migration defaults; existing rows
+backfill from stored quote snapshots when a `chainId` is present. Derived positions now expose
+`chainId`, manual trades/candidate copies/total-loss closes persist it, local export/import preserves
+it, and the Positions panel groups `/api/prices` calls by position chain before merging results.
+Verification: `npx tsc --noEmit`, `npm test` 16 files / 142 tests, and `npm run build` pass.
+Known limitation: token identity is still address-primary, not `(chainId, address)` composite, so a
+same-address token held on two chains would still need a deeper schema split later.
+
 Just shipped (branch `feat/live-unrealized-pnl`): live unrealized P&L on open positions. New
 `GET /api/prices?tokens=addr1,addr2&chainId=8453` route fetches spot prices for all open positions
 in parallel via `getZeroxPrice` (sells $10 USDC → token, derives `priceUsd = 10 / tokensReceived`).
@@ -267,7 +277,8 @@ This is enough to test the workflow, but it should not be treated as reliable Pn
 - Unpriced 0x fees are now valued in USD and folded into simulated cost: `valueUnpricedFees` (`src/lib/fees.ts`) prices a fee in WETH/native, USDC, or the traded token against anchors `buildQuotePreview` already has (`ethUsd`, `1`, derived token price), adds the valued amount to `dexFeeUsd`/`totalCostUsd`, and warns only about fees in tokens it still cannot value. `normalizeZeroxPriceQuote` no longer emits the unpriced warning; `buildQuotePreview` owns it and records `valuedFeeUsd`/`valuedFeeTokens`/`stillUnpricedFees` in the quote snapshot (it surfaces through the existing "Quote warn" badge). The fold is conservative: it may slightly overstate cost (0x can net a buy-token fee out of `buyAmount`) but never understates.
 
 - Quote previews now show a stale warning after 2 minutes via `isQuoteStale` in `src/lib/quoteAge.ts`; a `useEffect` interval fires every 30 seconds and sets the stale flag once the threshold is crossed.
-- Open positions now show live unrealized P&L. `GET /api/prices?tokens=...&chainId=8453` fetches spot prices in parallel via `getZeroxPrice` (USDC→token, $10 sell amount); the Positions panel has a "Refresh prices" button, per-card Current value and Unrealized P&L fields (green/red), and a 2-minute stale warning. Prices are ephemeral React state — no DB writes.
+- Open positions now show live unrealized P&L. `GET /api/prices?tokens=...&chainId=...` fetches spot prices in parallel via `getZeroxPrice` (USDC→token, $10 sell amount); the Positions panel has a "Refresh prices" button, per-card Current value and Unrealized P&L fields (green/red), and a 2-minute stale warning. Prices are ephemeral React state — no DB writes.
+- Chain IDs now persist through tokens, trades, ledger entries, and derived positions; position price refreshes are batched by chain so Ethereum and Base positions query the correct network.
 
 Do not rely on 0x Trade Analytics for arbitrary GMGN wallets. It only returns trades associated with our own 0x API key/app, so it is useful for our app analytics later, not for discovering or replaying random wallet trades.
 
@@ -302,7 +313,8 @@ Do not rely on 0x Trade Analytics for arbitrary GMGN wallets. It only returns tr
 5. Improve dashboard trust signals.
    - DONE: Trust signals v1 shipped. `derivePortfolioAnalytics` computes closed trade count, win rate, fee drag, FIFO average hold time, open exposure, realized PnL, and best/worst realized token; the dashboard renders a compact trust strip plus a small "Trust signals" panel.
    - DONE: Live unrealized P&L on open positions. "Refresh prices" button fetches spot prices via `/api/prices`, shows Current value and Unrealized P&L per position card, with a 2-minute stale warning.
-   - Follow-on: store `chainId` on trades/tokens so `/api/prices` can query the correct chain per position instead of defaulting to Base for all.
+   - DONE: Store `chainId` on tokens/trades/ledger-derived positions so `/api/prices` queries the correct chain per position instead of defaulting to Base for all.
+   - Follow-on: if same-address tokens across chains become a real case, migrate token/trade identity from address-only to `(chainId, address)` composite keys.
    - Follow-on: surface unrealized P&L in the top-level dashboard metrics row (total open gain/loss).
    - Follow-on: auto-refresh prices on an opt-in interval instead of manual button only.
    - Follow-on: wallet performance scoring — score each watched wallet by copy-trade outcomes (win rate, realized PnL, fee drag) so the watchlist shows who is worth copying.
