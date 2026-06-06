@@ -82,7 +82,7 @@ describe("normalizeZeroxPriceQuote unpriced fees", () => {
       { type: "zeroExFee", token: "0xtoken", amount: "5000000000000000000" }
     ]);
     expect(quote.warnings).toContain(
-      "0x reported a fee in 0xtoken the simulator could not value in USD; the real cost is higher than shown."
+      "0x reported a fee in 0xtoken that the simulator could not value in USD; the real cost is higher than shown."
     );
   });
 
@@ -108,8 +108,12 @@ describe("normalizeZeroxPriceQuote unpriced fees", () => {
         integratorFee: { amount: "1000000000000000000", token: "0xweth", type: "volume" }
       }
     });
+    expect(quote.unpricedFees).toEqual([
+      { type: "zeroExFee", token: "0xtoken", amount: "5000000000000000000" },
+      { type: "integratorFee", token: "0xweth", amount: "1000000000000000000" }
+    ]);
     expect(quote.warnings).toContain(
-      "0x reported a fee in 0xtoken, 0xweth the simulator could not value in USD; the real cost is higher than shown."
+      "0x reported a fee in 0xtoken, 0xweth that the simulator could not value in USD; the real cost is higher than shown."
     );
   });
 });

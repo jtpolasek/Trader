@@ -25,6 +25,12 @@ type ZeroxFee = {
   type?: string;
 };
 
+export type UnpricedFee = {
+  type: string;
+  token: string;
+  amount: string;
+};
+
 type ZeroxIssueMap = {
   liquidityAvailable?: boolean;
   simulationIncomplete?: boolean;
@@ -102,7 +108,7 @@ export function normalizeZeroxPriceQuote(
   if (unpriced.length) {
     const tokens = unpriced.map((fee) => fee.token).join(", ");
     warnings.push(
-      `0x reported a fee in ${tokens} the simulator could not value in USD; the real cost is higher than shown.`
+      `0x reported a fee in ${tokens} that the simulator could not value in USD; the real cost is higher than shown.`
     );
   }
 
@@ -186,12 +192,6 @@ function hasVisibleUnknownIssue(issues: ZeroxIssueMap) {
   const ignoredPaperModeKeys = new Set(["allowance", "balance"]);
   return Object.keys(issues).some((key) => !ignoredPaperModeKeys.has(key));
 }
-
-export type UnpricedFee = {
-  type: string;
-  token: string;
-  amount: string;
-};
 
 export function summarizeDexFees(
   quote: ZeroxRawQuote,
