@@ -307,7 +307,7 @@ async function fetchAlchemyTransfers(input: {
           fromBlock: "0x0",
           toBlock: "latest",
           ...(input.direction === "from" ? { fromAddress: input.address } : { toAddress: input.address }),
-          category: ["erc20", "external"],
+          category: ["erc20", "external", "internal"],
           withMetadata: true,
           excludeZeroValue: true,
           maxCount: "0x32",
