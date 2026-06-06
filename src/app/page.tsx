@@ -175,6 +175,7 @@ export default function Home() {
   const [error, setError] = useState("");
   const [ledgerOk, setLedgerOk] = useState<{ ok: boolean; count: number } | null>(null);
   const [paperArchives, setPaperArchives] = useState<PaperArchiveSummary[]>([]);
+  const [selectedArchiveId, setSelectedArchiveId] = useState("");
 
   const refresh = async () => {
     const response = await fetch("/api/portfolio", { cache: "no-store" });
@@ -198,6 +199,7 @@ export default function Home() {
       "Could not load paper portfolio archives."
     );
     setPaperArchives(payload.archives);
+    setSelectedArchiveId((current) => (payload.archives.some((archive) => archive.id === current) ? current : payload.archives[0]?.id ?? ""));
   };
 
   useEffect(() => {
@@ -663,6 +665,49 @@ export default function Home() {
     }
   }
 
+  async function renamePaperPortfolioArchive(archive: PaperArchiveSummary) {
+    const name = window.prompt("Archive name", archive.name);
+    if (name === null || name.trim() === archive.name) return;
+
+    setBusy(`rename-archive-${archive.id}`);
+    setError("");
+    setMessage("");
+    try {
+      const response = await fetch(`/api/portfolio/archives/${archive.id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name })
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error ?? "Could not rename paper portfolio archive.");
+      await refreshPaperArchives();
+      setMessage(`Renamed archive to "${payload.archive.name}".`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not rename paper portfolio archive.");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function deletePaperPortfolioArchive(archive: PaperArchiveSummary) {
+    if (!window.confirm(`Delete paper archive "${archive.name}"? This does not affect the current portfolio.`)) return;
+
+    setBusy(`delete-archive-${archive.id}`);
+    setError("");
+    setMessage("");
+    try {
+      const response = await fetch(`/api/portfolio/archives/${archive.id}`, { method: "DELETE" });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error ?? "Could not delete paper portfolio archive.");
+      await refreshPaperArchives();
+      setMessage(`Deleted archive "${archive.name}".`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not delete paper portfolio archive.");
+    } finally {
+      setBusy("");
+    }
+  }
+
   async function resetPaperPortfolio() {
     if (
       !window.confirm(
@@ -777,6 +822,7 @@ export default function Home() {
   const portfolio = data?.portfolio;
   const stats = data?.stats;
   const analytics = data?.analytics;
+  const selectedArchive = paperArchives.find((archive) => archive.id === selectedArchiveId) ?? paperArchives[0] ?? null;
   const lossOfferPosition =
     lossOfferTokenAddress && data?.positions.find((position) => position.tokenAddress === lossOfferTokenAddress);
 
@@ -843,16 +889,48 @@ export default function Home() {
           {busy === "archive-paper" ? <Loader2 size={18} /> : <Archive size={18} />}
           Archive paper
         </button>
-        <button
-          className="button secondary"
-          onClick={() => paperArchives[0] && restorePaperPortfolioArchive(paperArchives[0])}
-          disabled={!paperArchives.length || busy.startsWith("restore-archive-")}
-          title={paperArchives[0] ? `Restore ${paperArchives[0].name}` : "No paper archives yet"}
-        >
-          {busy.startsWith("restore-archive-") ? <Loader2 size={18} /> : <ArchiveRestore size={18} />}
-          Restore latest
-        </button>
-        {paperArchives.length ? <span className="pill">{paperArchives.length} archived</span> : null}
+        {paperArchives.length ? (
+          <>
+            <select
+              className="archive-select"
+              value={selectedArchive?.id ?? ""}
+              onChange={(event) => setSelectedArchiveId(event.target.value)}
+              title="Select a paper portfolio archive"
+            >
+              {paperArchives.map((archive) => (
+                <option key={archive.id} value={archive.id}>
+                  {archive.name} · {archive.tradeCount} trades · {new Date(archive.createdAt).toLocaleString()}
+                </option>
+              ))}
+            </select>
+            <button
+              className="button secondary"
+              onClick={() => selectedArchive && restorePaperPortfolioArchive(selectedArchive)}
+              disabled={!selectedArchive || busy.startsWith("restore-archive-")}
+              title={selectedArchive ? `Restore ${selectedArchive.name}` : "No paper archives yet"}
+            >
+              {busy.startsWith("restore-archive-") ? <Loader2 size={18} /> : <ArchiveRestore size={18} />}
+              Restore
+            </button>
+            <button
+              className="icon-button"
+              onClick={() => selectedArchive && renamePaperPortfolioArchive(selectedArchive)}
+              disabled={!selectedArchive || busy.startsWith("rename-archive-")}
+              title={selectedArchive ? `Rename ${selectedArchive.name}` : "No paper archives yet"}
+            >
+              {busy.startsWith("rename-archive-") ? <Loader2 size={18} /> : <Save size={18} />}
+            </button>
+            <button
+              className="icon-button danger"
+              onClick={() => selectedArchive && deletePaperPortfolioArchive(selectedArchive)}
+              disabled={!selectedArchive || busy.startsWith("delete-archive-")}
+              title={selectedArchive ? `Delete ${selectedArchive.name}` : "No paper archives yet"}
+            >
+              {busy.startsWith("delete-archive-") ? <Loader2 size={18} /> : <Trash2 size={18} />}
+            </button>
+            <span className="pill">{paperArchives.length} archived</span>
+          </>
+        ) : null}
         <button
           className="button danger"
           onClick={() => resetPaperPortfolio()}

@@ -57,6 +57,10 @@ button {
   margin-bottom: 24px;
 }
 
+.archive-select {
+  width: min(360px, 100%);
+}
+
 .brand {
   display: flex;
   flex-direction: column;

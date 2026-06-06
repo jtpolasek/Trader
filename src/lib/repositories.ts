@@ -980,6 +980,23 @@ export function restorePaperPortfolioArchive(id: string): { portfolio: Portfolio
   return { portfolio: getPortfolio(), archive: archiveSummaryFromPayload({ id: String(row.id), name: String(row.name), payload, createdAt: String(row.created_at) }) };
 }
 
+export function renamePaperPortfolioArchive(id: string, name: string): PaperPortfolioArchiveSummary {
+  const archiveName = name.trim();
+  if (!archiveName) throw new Error("Archive name is required.");
+
+  const db = getDb();
+  const result = db.prepare("UPDATE paper_portfolio_archives SET name = ? WHERE id = ?").run(archiveName, id);
+  if (!Number(result.changes ?? 0)) throw new Error("Paper portfolio archive was not found.");
+
+  const row = db.prepare("SELECT * FROM paper_portfolio_archives WHERE id = ?").get(id) as Row;
+  return rowToPaperPortfolioArchiveSummary(row);
+}
+
+export function deletePaperPortfolioArchive(id: string): number {
+  const result = getDb().prepare("DELETE FROM paper_portfolio_archives WHERE id = ?").run(id);
+  return Number(result.changes ?? 0);
+}
+
 export function getTradeCandidate(id: string): TradeCandidate | null {
   const row = getDb().prepare("SELECT * FROM trade_candidates WHERE id = ?").get(id) as Row | undefined;
   return row ? rowToTradeCandidate(row) : null;

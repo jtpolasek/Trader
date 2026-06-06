@@ -443,6 +443,7 @@ describe("paper portfolio archives", () => {
   it("restores archived paper state without replacing watch data or settings", async () => {
     const {
       createPaperPortfolioArchive,
+      deletePaperPortfolioArchive,
       getCopySettings,
       getPortfolio,
       insertQuote,
@@ -453,6 +454,7 @@ describe("paper portfolio archives", () => {
       listTrades,
       listWallets,
       recordTrade,
+      renamePaperPortfolioArchive,
       restorePaperPortfolioArchive,
       resetPaperPortfolio,
       updateCopySettings,
@@ -502,6 +504,11 @@ describe("paper portfolio archives", () => {
       quoteCount: 1,
       copiedCandidateCount: 1
     });
+    expect(renamePaperPortfolioArchive(archive.id, "Renamed run")).toMatchObject({
+      id: archive.id,
+      name: "Renamed run",
+      tradeCount: 1
+    });
 
     resetPaperPortfolio();
     recordTrade(tradeInput({ tokenAddress: token.address, quantity: 1, notionalUsd: 10, totalCostUsd: 11 }));
@@ -520,6 +527,9 @@ describe("paper portfolio archives", () => {
       lastCopyStatus: "copied",
       lastCopyTradeId: tradeId
     });
+
+    expect(deletePaperPortfolioArchive(archive.id)).toBe(1);
+    expect(listPaperPortfolioArchives()).toHaveLength(0);
   });
 });
 
