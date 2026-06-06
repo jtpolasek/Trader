@@ -56,6 +56,8 @@ function toCandidate(items: WalletActivity[]): CandidateDraft {
       ? pairAnalysis.sellCopyTokenCount > 1
       : false;
   const isAmbiguous = inbound.length > 1 || outbound.length > 1 || viablePairCount > 1;
+  const hasOnlyTinyDuplicateCashNoise = selectedPair ? isTinyDuplicateCashNoise(pairAnalysis.viablePairs, selectedPair) : false;
+  const needsReview = (isAmbiguous && !hasOnlyTinyDuplicateCashNoise) || missingCopyTokenAddress;
   const sourceTimestamp = newestTimestamp(items);
 
   if (!hasBothDirections) {
@@ -112,8 +114,8 @@ function toCandidate(items: WalletActivity[]): CandidateDraft {
     chainId: first.chainId,
     chainName: first.chainName,
     hash: first.hash,
-    status: isAmbiguous || missingCopyTokenAddress ? "candidate" : "decoded",
-    confidence: missingCopyTokenAddress ? 0.58 : hasMultipleCopyTokens ? 0.52 : isAmbiguous ? 0.72 : 0.9,
+    status: needsReview ? "candidate" : "decoded",
+    confidence: missingCopyTokenAddress ? 0.58 : hasMultipleCopyTokens ? 0.52 : needsReview ? 0.72 : 0.9,
     side,
     tokenInAsset: tokenIn.asset,
     tokenInAddress: tokenIn.contractAddress,
@@ -125,7 +127,7 @@ function toCandidate(items: WalletActivity[]): CandidateDraft {
       ? "The likely traded token has no contract address in the transfer payload; review before copying."
       : hasMultipleCopyTokens
       ? describeMultipleCopyTokens(selectedSide, tokenIn.asset, tokenOut.asset)
-      : isAmbiguous
+      : needsReview
       ? describeAmbiguousPair(side, tokenIn.asset, tokenOut.asset)
       : describeDecodedPair(side, tokenIn.asset, tokenOut.asset),
     transferCount: items.length,
@@ -170,6 +172,36 @@ function countDistinctCopyTokens(pairs: TransferPair[], side: TradeSide) {
       .map((item) => item.contractAddress || normalizeAsset(item.asset))
       .filter(Boolean)
   ).size;
+}
+
+function isTinyDuplicateCashNoise(pairs: TransferPair[], selected: TransferPair) {
+  const alternates = pairs.filter((pair) => pair !== selected);
+  if (alternates.length === 0) return false;
+
+  const selectedCopyToken = copyTokenKey(selected);
+  const selectedCashToken = cashTokenKey(selected);
+  const selectedCashValue = cashToken(selected).value;
+  if (!selectedCopyToken || !selectedCashToken || selectedCashValue <= 0) return false;
+
+  return alternates.every((pair) => {
+    if (pair.side !== selected.side) return false;
+    if (copyTokenKey(pair) !== selectedCopyToken) return false;
+    if (cashTokenKey(pair) !== selectedCashToken) return false;
+    return cashToken(pair).value <= selectedCashValue * 0.01;
+  });
+}
+
+function copyTokenKey(pair: TransferPair) {
+  const token = pair.side === "buy" ? pair.tokenOut : pair.tokenIn;
+  return token.contractAddress || normalizeAsset(token.asset);
+}
+
+function cashTokenKey(pair: TransferPair) {
+  return normalizeAsset(cashToken(pair).asset);
+}
+
+function cashToken(pair: TransferPair) {
+  return pair.side === "buy" ? pair.tokenIn : pair.tokenOut;
 }
 
 function scorePair(tokenIn: WalletActivity, tokenOut: WalletActivity, side: TradeSide | "unknown") {

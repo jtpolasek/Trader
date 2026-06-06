@@ -159,6 +159,88 @@ describe("deriveTradeCandidates", () => {
     expect(candidates[0].reason).toContain("selected the likely sell of PEPE");
   });
 
+  it("decodes a noisy sell when one token-out and one proceeds leg dominate a tiny native refund", () => {
+    const candidates = deriveTradeCandidates([
+      activity({
+        hash: "0xsellrefund",
+        asset: "PEPE",
+        contractAddress: "0x0000000000000000000000000000000000001000",
+        value: 1000,
+        fromAddress: wallet,
+        toAddress: "0xrouter"
+      }),
+      activity({
+        hash: "0xsellrefund",
+        category: "internal",
+        asset: "ETH",
+        contractAddress: "",
+        value: 0.08,
+        fromAddress: "0xrouter",
+        toAddress: wallet
+      }),
+      activity({
+        hash: "0xsellrefund",
+        category: "internal",
+        asset: "ETH",
+        contractAddress: "",
+        value: 0.00002,
+        fromAddress: "0xrefund",
+        toAddress: wallet
+      })
+    ]);
+
+    expect(candidates[0]).toMatchObject({
+      status: "decoded",
+      confidence: 0.9,
+      side: "sell",
+      tokenInAsset: "PEPE",
+      tokenInAddress: "0x0000000000000000000000000000000000001000",
+      tokenOutAsset: "ETH",
+      tokenOutAmount: 0.08
+    });
+  });
+
+  it("keeps a sell with competing same-asset proceeds in review", () => {
+    const candidates = deriveTradeCandidates([
+      activity({
+        hash: "0xsellcompetingproceeds",
+        asset: "PEPE",
+        contractAddress: "0x0000000000000000000000000000000000001000",
+        value: 1000,
+        fromAddress: wallet,
+        toAddress: "0xrouter"
+      }),
+      activity({
+        hash: "0xsellcompetingproceeds",
+        category: "internal",
+        asset: "ETH",
+        contractAddress: "",
+        value: 0.08,
+        fromAddress: "0xrouter",
+        toAddress: wallet
+      }),
+      activity({
+        hash: "0xsellcompetingproceeds",
+        category: "internal",
+        asset: "ETH",
+        contractAddress: "",
+        value: 0.04,
+        fromAddress: "0xother-route",
+        toAddress: wallet
+      })
+    ]);
+
+    expect(candidates[0]).toMatchObject({
+      status: "candidate",
+      confidence: 0.72,
+      side: "sell",
+      tokenInAsset: "PEPE",
+      tokenOutAsset: "ETH",
+      tokenOutAmount: 0.08
+    });
+    expect(candidates[0].reason).toContain("Multiple inbound or outbound transfers");
+  });
+
   it("decodes a Base native buy from ETH out and token in", () => {
     const candidates = deriveTradeCandidates([
       activity({
