@@ -26,7 +26,7 @@ export function valueUnpricedFees(unpriced: UnpricedFee[], anchors: FeePriceAnch
     }
     try {
       valuedUsd += fromBaseUnits(fee.amount, anchor.decimals) * anchor.usdPrice;
-      pricedTokens.push(fee.token);
+      pricedTokens.push(fee.token.toLowerCase());
     } catch {
       stillUnpriced.push(fee);
     }

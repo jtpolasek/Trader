@@ -28,6 +28,7 @@ describe("valueUnpricedFees", () => {
       anchors
     );
     expect(result.valuedUsd).toBeCloseTo(3000, 10);
+    expect(result.pricedTokens).toEqual([WETH]);
     expect(result.stillUnpriced).toEqual([]);
   });
 
