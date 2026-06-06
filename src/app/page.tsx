@@ -84,6 +84,9 @@ type QuoteDebugSnapshot = {
     gasPriceWei?: number;
     dexFeeUsd?: number;
   };
+  valuedFeeUsd?: number;
+  valuedFeeTokens?: string[];
+  stillUnpricedFees?: { type?: string; token?: string; amount?: string }[];
   rawQuote?: unknown;
 };
 
@@ -873,6 +876,12 @@ export default function Home() {
                     value={formatUsd(preview.side === "buy" ? preview.totalCostUsd : preview.sellProceedsUsd)}
                   />
                 </div>
+                <p className="subtle">
+                  0x fee {formatUsd(preview.dexFeeUsd)}
+                  {getValuedFeeUsd(preview.quoteSnapshot) > 0
+                    ? ` (incl. ${formatUsd(getValuedFeeUsd(preview.quoteSnapshot))} valued from a non-USDC token)`
+                    : ""}
+                </p>
                 {preview.warnings.map((warning) => (
                   <div className="alert" key={warning}>
                     {warning}
@@ -1369,12 +1378,19 @@ function CandidateAttentionStrip({ summary }: { summary?: CandidateAttention }) 
 
 function FeeBreakdown({ trade }: { trade: Trade }) {
   const totalFees = trade.gasUsd + trade.slippageUsd + trade.dexFeeUsd;
+  const snapshot = parseSnapshot(trade.quoteSnapshot);
+  const valuedFeeUsd = getValuedFeeUsd(snapshot);
   return (
     <div className="fee-stack">
       <strong>{formatUsd(totalFees)}</strong>
       <span>Gas {formatUsd(trade.gasUsd)}</span>
       <span>Slip {formatUsd(trade.slippageUsd)}</span>
       <span>0x {formatUsd(trade.dexFeeUsd)}</span>
+      {valuedFeeUsd > 0 ? (
+        <span className="subtle" title="Portion of the 0x fee that 0x reported in a non-USDC token and the simulator valued into USD.">
+          incl. {formatUsd(valuedFeeUsd)} valued
+        </span>
+      ) : null}
     </div>
   );
 }
@@ -1554,6 +1570,15 @@ function getTradeSignals(trade: Trade): TradeSignal[] {
     });
   }
 
+  const unpricedFeeTokens = getStillUnpricedFeeTokens(snapshot);
+  if (unpricedFeeTokens.length) {
+    signals.push({
+      label: "Unpriced fee",
+      tone: "bad",
+      title: `0x reported a fee in ${unpricedFeeTokens.join(", ")} the simulator could not value in USD; the real cost is higher than shown.`
+    });
+  }
+
   return signals;
 }
 
@@ -1572,6 +1597,17 @@ function getSnapshotWarnings(snapshot: Record<string, unknown>) {
 
   const warnings = (normalizedQuote as Record<string, unknown>).warnings;
   return Array.isArray(warnings) ? warnings.filter((warning): warning is string => typeof warning === "string") : [];
+}
+
+function getValuedFeeUsd(snapshot: Record<string, unknown>) {
+  const valued = (snapshot as QuoteDebugSnapshot).valuedFeeUsd;
+  return typeof valued === "number" && Number.isFinite(valued) ? valued : 0;
+}
+
+function getStillUnpricedFeeTokens(snapshot: Record<string, unknown>) {
+  const fees = (snapshot as QuoteDebugSnapshot).stillUnpricedFees;
+  if (!Array.isArray(fees)) return [];
+  return fees.map((fee) => fee?.token).filter((token): token is string => typeof token === "string" && token.length > 0);
 }
 
 function formatPercent(value: number) {
@@ -1627,7 +1663,9 @@ function QuoteDebug({ snapshot }: { snapshot: Record<string, unknown> }) {
     ["ETH/USD", debug.assumptions?.ethUsd ? formatUsd(debug.assumptions.ethUsd) : ""],
     ["Slippage bps", debug.assumptions?.slippageBps?.toString()],
     ["Gas buffer bps", debug.assumptions?.gasBufferBps?.toString()],
-    ["0x fee", debug.assumptions?.dexFeeUsd !== undefined ? formatUsd(debug.assumptions.dexFeeUsd) : ""]
+    ["0x fee", debug.assumptions?.dexFeeUsd !== undefined ? formatUsd(debug.assumptions.dexFeeUsd) : ""],
+    ["Valued 0x fee", debug.valuedFeeUsd ? formatUsd(debug.valuedFeeUsd) : ""],
+    ["Unpriced fee tokens", getStillUnpricedFeeTokens(snapshot).join(", ")]
   ].filter((row): row is [string, string] => Boolean(row[1]));
 
   return (
