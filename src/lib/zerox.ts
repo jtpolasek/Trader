@@ -52,6 +52,7 @@ export type NormalizedZeroxQuote = {
   gasUnits: number;
   gasPriceWei: number;
   dexFeeUsd: number;
+  unpricedFees: UnpricedFee[];
   warnings: string[];
   rawResponse: ZeroxRawQuote;
 };
@@ -97,6 +98,14 @@ export function normalizeZeroxPriceQuote(
     warnings.push("0x did not return a complete gas estimate; gas may be understated.");
   }
 
+  const { dexFeeUsd, unpriced } = summarizeDexFees(rawResponse, params.chainId);
+  if (unpriced.length) {
+    const tokens = unpriced.map((fee) => fee.token).join(", ");
+    warnings.push(
+      `0x reported a fee in ${tokens} the simulator could not value in USD; the real cost is higher than shown.`
+    );
+  }
+
   return {
     provider: "0x",
     endpoint: ZEROX_PRICE_ENDPOINT,
@@ -107,7 +116,8 @@ export function normalizeZeroxPriceQuote(
     buyAmount: rawResponse.buyAmount ?? "0",
     gasUnits,
     gasPriceWei,
-    dexFeeUsd: summarizeDexFees(rawResponse, params.chainId).dexFeeUsd,
+    dexFeeUsd,
+    unpricedFees: unpriced,
     warnings,
     rawResponse
   };
