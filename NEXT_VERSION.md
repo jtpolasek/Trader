@@ -27,24 +27,22 @@ the `unpricedFees` field on the normalized quote. Spec/plan:
 `docs/superpowers/specs/2026-06-05-unpriced-0x-fee-detection-design.md` and
 `docs/superpowers/plans/2026-06-05-unpriced-0x-fee-detection.md`.
 
-Recent commits on `main`:
+Recent commits on `main` (newest first, all pushed to `origin/main`):
 
+- `Merge: value unpriced 0x fees in USD`
+- `Merge: unpriced 0x fee detection`
+- `feat: add dashboard reprocess control for stored activity candidates`
 - `feat: reprocess stored wallet activity candidates`
 - `feat: add dashboard trust signals`
-- `docs: update next version handoff after import/restore flow`
 - `Merge: local import/restore flow`
-- `feat: add Import data control to dashboard`
-- `feat: add import preview and import API routes`
-- `feat: add transactional replace-all importLocalData`
 
-Current local branch state: stored wallet activity candidate reprocessing is implemented and ready
-to commit. The route `GET /api/candidates/reprocess` previews missing candidates derived from
-existing `wallet_activity`; `POST /api/candidates/reprocess` inserts only missing candidates and
-does not overwrite copied/failed or otherwise existing rows. The helper script
-`npm run reprocess:candidates` reports stored-vs-derived differences, and
-`npm run reprocess:candidates -- --apply` applies missing candidates to the local DB. The real
-`data/paper-trader.db` was reprocessed in this session: stored candidates moved from 242 to 481,
-matching all 481 currently derived candidates with `changed: 0`.
+Also merged + pushed this session: the dashboard "Reprocess" control (previews `GET /api/candidates/reprocess`,
+confirms the decoded/review/skipped breakdown, applies via `POST`, reloads), wiring up the
+already-built reprocess backend. The route `GET /api/candidates/reprocess` previews missing
+candidates derived from existing `wallet_activity`; `POST` inserts only missing rows and does not
+overwrite copied/failed/existing candidates. CLI: `npm run reprocess:candidates` (+ `-- --apply`).
+The real `data/paper-trader.db` was reprocessed earlier: stored candidates 242 → 481, matching all
+481 derived with `changed: 0`.
 
 Latest verification after stored-activity reprocessing:
 
@@ -61,12 +59,37 @@ Latest verification after the import/restore work:
 - `npm run build` passes (new routes `/api/import` and `/api/import/preview` listed).
 - End-to-end smoke check against the real `data/paper-trader.db`: rejection paths return the expected 400 messages (`schemaVersion 2`, missing collections, non-object); a real export → add throwaway wallet → import-the-export round-trip dropped the throwaway (wallets 4 → 3), restored all 13 trades, and `GET /api/ledger/verify` returned `ok:true`.
 
-Best next candidate for the CLI session: add a dashboard control for the stored-activity reprocess
-preview/apply route. If I had to pick one thing, that is the best next step because the backend is
-already in place, the real DB has been reprocessed cleanly, and the UI still has no in-app way to
-preview/apply the operation. Secondary option: continue wallet activity parsing hardening with more
-real Base/review-only fixtures. Alternative next slice: quote reliability hardening (Build Next #1),
-or persistence ops follow-up (Build Next #6) with a paper portfolio archive workflow.
+## Resume Here Tomorrow
+
+State of `main`: clean and pushed. Both quote-reliability fee slices are done (detection +
+USD valuation). The most recent few sessions cleared the obvious quote-cost trust gaps, so the
+highest-leverage remaining work shifts back toward **wallet parsing** and **surfacing the new fee
+data in the UI**.
+
+Ranked suggestions for the next build, best first:
+
+1. **Surface valued/unpriced fees in the dashboard (small, high-trust, fast win).** The backend now
+   stores `valuedFeeUsd`, `valuedFeeTokens`, and `stillUnpricedFees` in the quote snapshot, but the
+   UI still only shows the combined dex fee and the generic "Quote warn" badge. Add a compact line
+   in the trade/preview fee breakdown that shows how much of the dex fee came from a valued 0x fee,
+   and a distinct badge when `stillUnpricedFees` is non-empty (vs other quote warnings). Pure
+   front-end read of existing snapshot fields — no schema/route work. Good first task to warm up.
+
+2. **Wallet activity parsing hardening (Build Next #2, core trustworthiness).** Add more real
+   Base and review-only stored-payload fixtures and keep tightening buy/sell direction inference,
+   especially native-ETH and multi-transfer sell shapes. This is the biggest lever on simulation
+   trustworthiness and the parser already has a solid fixture/test harness in `src/lib/candidates*`.
+
+3. **Paper-portfolio archive workflow (Build Next #6).** Let testing bad trades not require manual
+   DB cleanup — an archive/restore for the paper portfolio (trades + ledger + quotes) that preserves
+   wallets/activity/candidates/settings, building on the existing reset + export/import plumbing.
+
+4. **Quote reliability leftovers (Build Next #1).** Lower priority now that fees are handled.
+   Remaining: broaden 0x `issues` parsing as new real shapes appear; consider an optional firm
+   `/swap/allowance-holder/quote` simulation mode once `/price` previews are proven stable.
+
+If unsure, do #1 first (it closes the loop on the fee work we just shipped by making it visible),
+then move to #2.
 
 Just completed: the local import/restore flow. A pure zod validator (`src/lib/importBundle.ts`, `parseImportBundle` + `summarizeImportBundle`) enforces `schemaVersion: 1` and strips derived fields; `importLocalData` in `repositories.ts` does a single-transaction replace-all that preserves original IDs/timestamps (so ledger verify still matches), deleting child-first and inserting parent-first under `foreign_keys = ON`. Routes `POST /api/import/preview` (summary, no write) and `POST /api/import` share the validator. The dashboard has an "Import data" button that previews → `window.confirm` summary → imports → `window.location.reload()`. Derived fields (`positions`, `candidateAttention`, `copySettings`, portfolio totals, `app`/`exportedAt`) are intentionally ignored on import; `copy_settings` rides in via the `settings` array. Spec/plan: `docs/superpowers/specs/2026-06-05-local-import-restore-design.md` and `docs/superpowers/plans/2026-06-05-local-import-restore.md`.
 
