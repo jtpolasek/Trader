@@ -2,7 +2,21 @@
 
 ## Latest Session Notes
 
-Just shipped (branch `feat/value-unpriced-0x-fees`): valuing unpriced 0x fees in USD, built on top
+Just shipped (branch `feat/surface-valued-unpriced-fees`): surfacing the valued/unpriced 0x fee data
+in the dashboard (Build Next #1). Front-end only, reads the existing quote-snapshot fields
+(`valuedFeeUsd`, `valuedFeeTokens`, `stillUnpricedFees`) in `src/app/page.tsx` — no schema/route
+changes. Added two helpers next to `getSnapshotWarnings` (`getValuedFeeUsd`,
+`getStillUnpricedFeeTokens`); the trade-history fee breakdown shows an `incl. $X valued` sub-line on
+the 0x fee; `getTradeSignals` emits a distinct red "Unpriced fee" badge (separate from the amber
+"Quote warn") when `stillUnpricedFees` is non-empty; the manual preview box shows the 0x fee plus its
+valued portion; and the quote details panel gained "Valued 0x fee" / "Unpriced fee tokens" rows. No
+double-counting: the unpriced warning is added at the preview level, not into
+`normalizedQuote.warnings`, so "Quote warn" does not also fire for it. The real
+`data/paper-trader.db` has no unpriced-fee trades yet, so the badge/line only appear once such a
+quote is encountered. Verification: `npx tsc --noEmit` clean, `npm test` 15 files / 130 tests pass,
+`npm run build` succeeds. Next up is Build Next #2 (wallet activity parsing hardening).
+
+Previously shipped (branch `feat/value-unpriced-0x-fees`): valuing unpriced 0x fees in USD, built on top
 of the earlier detection slice. A pure `valueUnpricedFees(unpriced, anchors)` in `src/lib/fees.ts`
 prices a fee denominated in WETH/native, USDC, or the traded token against anchors `buildQuotePreview`
 already holds (`ethUsd`, `1`, and the derived token price), and `buildQuotePreview` folds the valued
@@ -68,12 +82,10 @@ data in the UI**.
 
 Ranked suggestions for the next build, best first:
 
-1. **Surface valued/unpriced fees in the dashboard (small, high-trust, fast win).** The backend now
-   stores `valuedFeeUsd`, `valuedFeeTokens`, and `stillUnpricedFees` in the quote snapshot, but the
-   UI still only shows the combined dex fee and the generic "Quote warn" badge. Add a compact line
-   in the trade/preview fee breakdown that shows how much of the dex fee came from a valued 0x fee,
-   and a distinct badge when `stillUnpricedFees` is non-empty (vs other quote warnings). Pure
-   front-end read of existing snapshot fields — no schema/route work. Good first task to warm up.
+1. DONE: **Surface valued/unpriced fees in the dashboard.** Shipped on branch
+   `feat/surface-valued-unpriced-fees` (see Latest Session Notes). The trade/preview fee breakdown
+   now shows the valued portion of the dex fee and a distinct "Unpriced fee" badge fires when
+   `stillUnpricedFees` is non-empty. Pure front-end read of the existing snapshot fields.
 
 2. **Wallet activity parsing hardening (Build Next #2, core trustworthiness).** Add more real
    Base and review-only stored-payload fixtures and keep tightening buy/sell direction inference,
@@ -88,8 +100,8 @@ Ranked suggestions for the next build, best first:
    Remaining: broaden 0x `issues` parsing as new real shapes appear; consider an optional firm
    `/swap/allowance-holder/quote` simulation mode once `/price` previews are proven stable.
 
-If unsure, do #1 first (it closes the loop on the fee work we just shipped by making it visible),
-then move to #2.
+#1 is now done, so start with #2 (wallet activity parsing hardening) — it is the biggest remaining
+lever on simulation trustworthiness.
 
 Just completed: the local import/restore flow. A pure zod validator (`src/lib/importBundle.ts`, `parseImportBundle` + `summarizeImportBundle`) enforces `schemaVersion: 1` and strips derived fields; `importLocalData` in `repositories.ts` does a single-transaction replace-all that preserves original IDs/timestamps (so ledger verify still matches), deleting child-first and inserting parent-first under `foreign_keys = ON`. Routes `POST /api/import/preview` (summary, no write) and `POST /api/import` share the validator. The dashboard has an "Import data" button that previews → `window.confirm` summary → imports → `window.location.reload()`. Derived fields (`positions`, `candidateAttention`, `copySettings`, portfolio totals, `app`/`exportedAt`) are intentionally ignored on import; `copy_settings` rides in via the `settings` array. Spec/plan: `docs/superpowers/specs/2026-06-05-local-import-restore-design.md` and `docs/superpowers/plans/2026-06-05-local-import-restore.md`.
 
