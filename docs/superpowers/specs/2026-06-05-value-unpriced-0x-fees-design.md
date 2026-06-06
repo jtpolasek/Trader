@@ -174,8 +174,12 @@ fires, `valuedUsd` unaffected.
 - Buy whose fee is in an unrelated token: warning present, `dexFeeUsd` unchanged
   by it.
 
-(These follow the existing `buildQuotePreview` test setup, which mocks the swap
-quote and native price.)
+(`buildQuotePreview` has no existing test harness. It reaches `fetch` twice —
+first the swap quote via `getBestSwapQuote`, then the native USD price via
+`getNativeUsdPrice` — so the tests mock `globalThis.fetch` with two sequential
+responses, reusing the `jsonResponse` helper already in `external.test.ts` and
+setting `process.env.ZEROX_API_KEY`. The traded `Token` is passed into
+`buildQuotePreview` directly, so no token-resolution fetch is needed.)
 
 ### `src/lib/zerox.test.ts` — update
 - The two tests asserting the normalize-level unpriced warning are changed to
