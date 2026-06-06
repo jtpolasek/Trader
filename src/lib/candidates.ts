@@ -215,7 +215,7 @@ function isNativeAsset(asset?: string) {
 
 function hasMissingTokenDetails(item: WalletActivity | null) {
   if (!item) return true;
-  if (item.category === "external") return false;
+  if (item.category === "external" || item.category === "internal") return false;
   return !item.asset || !item.value || !item.contractAddress;
 }
 

@@ -676,4 +676,74 @@ describe("deriveTradeCandidates", () => {
     expect(candidates.map((candidate) => candidate.hash)).toEqual(["0xnew", "0xold"]);
     expect(candidates[0].sourceTimestamp).toBe("2026-06-03T00:00:00.000Z");
   });
+
+  it("decodes a Base sell from erc20 token-out and internal ETH-in", () => {
+    const hash = "0xsellhash";
+    const chainId = 8453;
+    const router = "0xd0a40c6526acdebd4f6d87931098ff37a9f8e4bf";
+    const tokenAddress = "0xdcb35db5e40d1b53e54bb7cfe8f9730ecddb9ba3";
+
+    const candidates = deriveTradeCandidates([
+      activity({
+        hash,
+        chainId,
+        chainName: "Base",
+        category: "erc20",
+        asset: "TALOS",
+        contractAddress: tokenAddress,
+        value: 89492134,
+        fromAddress: wallet,
+        toAddress: router,
+        timestamp: "2026-06-04T16:45:35.000Z",
+        rawPayload: JSON.stringify({
+          blockNum: "0x2cba766",
+          uniqueId: `${hash}:log:799`,
+          hash,
+          from: wallet,
+          to: router,
+          value: 89492134,
+          asset: "TALOS",
+          category: "erc20",
+          rawContract: { value: "0x4a06b254badabe8f12a84a", address: tokenAddress, decimal: "0x12" },
+          metadata: { blockTimestamp: "2026-06-04T16:45:35.000Z" },
+          chainId: 8453,
+          chainName: "Base"
+        })
+      }),
+      activity({
+        hash,
+        chainId,
+        chainName: "Base",
+        category: "internal",
+        asset: "ETH",
+        contractAddress: "",
+        value: 0.5,
+        fromAddress: router,
+        toAddress: wallet,
+        timestamp: "2026-06-04T16:45:35.000Z",
+        rawPayload: JSON.stringify({
+          blockNum: "0x2cba766",
+          uniqueId: `${hash}:internal:0`,
+          hash,
+          from: router,
+          to: wallet,
+          value: 0.5,
+          asset: "ETH",
+          category: "internal",
+          rawContract: { value: "0x6f05b59d3b20000", address: null, decimal: null },
+          metadata: { blockTimestamp: "2026-06-04T16:45:35.000Z" },
+          chainId: 8453,
+          chainName: "Base"
+        })
+      })
+    ]);
+
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0].status).toBe("decoded");
+    expect(candidates[0].side).toBe("sell");
+    expect(candidates[0].tokenInAsset).toBe("TALOS");
+    expect(candidates[0].tokenInAddress).toBe(tokenAddress);
+    expect(candidates[0].tokenOutAsset).toBe("ETH");
+    expect(candidates[0].confidence).toBeGreaterThanOrEqual(0.9);
+  });
 });
