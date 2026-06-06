@@ -107,7 +107,7 @@ export function normalizeZeroxPriceQuote(
     buyAmount: rawResponse.buyAmount ?? "0",
     gasUnits,
     gasPriceWei,
-    dexFeeUsd: estimateDexFeeUsd(rawResponse, params.chainId),
+    dexFeeUsd: summarizeDexFees(rawResponse, params.chainId).dexFeeUsd,
     warnings,
     rawResponse
   };
@@ -177,21 +177,44 @@ function hasVisibleUnknownIssue(issues: ZeroxIssueMap) {
   return Object.keys(issues).some((key) => !ignoredPaperModeKeys.has(key));
 }
 
-function estimateDexFeeUsd(quote: ZeroxRawQuote, chainId = ETH_CHAIN_ID) {
+export type UnpricedFee = {
+  type: string;
+  token: string;
+  amount: string;
+};
+
+export function summarizeDexFees(
+  quote: ZeroxRawQuote,
+  chainId = ETH_CHAIN_ID
+): { dexFeeUsd: number; unpriced: UnpricedFee[] } {
   const fees = quote.fees;
-  if (!fees) return 0;
+  if (!fees) return { dexFeeUsd: 0, unpriced: [] };
+
   const usdc = getChainTokens(chainId).usdc;
-  const feeValues = [fees.integratorFee, fees.zeroExFee, fees.gasFee]
-    .filter(Boolean)
-    .map((fee) => {
-      if (!fee?.amount || fee.token?.toLowerCase() !== usdc.address.toLowerCase()) return 0;
-      try {
-        return fromBaseUnits(fee.amount, usdc.decimals);
-      } catch {
-        return 0;
-      }
-    });
-  return feeValues.reduce((sum, value) => sum + value, 0);
+  const isUsdc = (token?: string) => token?.toLowerCase() === usdc.address.toLowerCase();
+
+  let dexFeeUsd = 0;
+  for (const fee of [fees.integratorFee, fees.zeroExFee, fees.gasFee]) {
+    if (!fee?.amount || !isUsdc(fee.token)) continue;
+    try {
+      dexFeeUsd += fromBaseUnits(fee.amount, usdc.decimals);
+    } catch {
+      // an unparseable USDC fee amount contributes nothing
+    }
+  }
+
+  const unpriced: UnpricedFee[] = [];
+  for (const [type, fee] of [
+    ["zeroExFee", fees.zeroExFee],
+    ["integratorFee", fees.integratorFee]
+  ] as const) {
+    if (!fee?.amount || isUsdc(fee.token)) continue;
+    const amount = Number(fee.amount);
+    if (!Number.isFinite(amount) || amount <= 0) continue;
+    unpriced.push({ type, token: fee.token ?? "", amount: fee.amount });
+  }
+
+  return { dexFeeUsd, unpriced };
 }
 
 function finiteNumber(value: unknown) {
