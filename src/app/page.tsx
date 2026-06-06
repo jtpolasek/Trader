@@ -879,6 +879,11 @@ export default function Home() {
 
             {preview ? (
               <div className="quote-box stack">
+                {isStale && (
+                  <div className="alert">
+                    ⚠ Quote is over 2 minutes old — prices may have moved. Consider refreshing.
+                  </div>
+                )}
                 <div className="row">
                   <div>
                     <h3>
