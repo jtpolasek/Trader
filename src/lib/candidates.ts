@@ -265,11 +265,12 @@ function hydrateActivityFromRawPayload(item: WalletActivity): WalletActivity {
   if (!raw) return item;
 
   const rawAsset = typeof raw.asset === "string" ? raw.asset.trim() : "";
-  const rawValue = typeof raw.value === "number" ? raw.value : Number(raw.value);
+  const rawCategory = typeof raw.category === "string" ? raw.category.trim() : "";
   const rawContract =
     raw.rawContract && typeof raw.rawContract === "object" && !Array.isArray(raw.rawContract)
       ? (raw.rawContract as Record<string, unknown>)
       : null;
+  const rawValue = readRawValue(raw.value) ?? readRawContractValue(rawContract, rawCategory);
   const rawAddress = normalizeOptionalAddress(
     typeof rawContract?.address === "string" ? rawContract.address : undefined
   );
@@ -277,7 +278,6 @@ function hydrateActivityFromRawPayload(item: WalletActivity): WalletActivity {
     raw.metadata && typeof raw.metadata === "object" && !Array.isArray(raw.metadata)
       ? (raw.metadata as Record<string, unknown>).blockTimestamp
       : "";
-  const rawCategory = typeof raw.category === "string" ? raw.category.trim() : "";
   const rawFrom = normalizeOptionalAddress(typeof raw.from === "string" ? raw.from : undefined);
   const rawTo = normalizeOptionalAddress(typeof raw.to === "string" ? raw.to : undefined);
   const rawBlockNum = typeof raw.blockNum === "string" ? raw.blockNum.trim() : "";
@@ -287,7 +287,7 @@ function hydrateActivityFromRawPayload(item: WalletActivity): WalletActivity {
     category: item.category || rawCategory,
     asset: isMissingAsset(item.asset) && rawAsset ? rawAsset : item.asset,
     contractAddress: item.contractAddress || rawAddress,
-    value: item.value || (Number.isFinite(rawValue) ? rawValue : item.value),
+    value: item.value || rawValue || item.value,
     fromAddress: item.fromAddress || rawFrom,
     toAddress: item.toAddress || rawTo,
     blockNum: item.blockNum || rawBlockNum,
@@ -311,6 +311,45 @@ function parseRawAlchemyTransfer(rawPayload: string): Record<string, unknown> | 
 function isMissingAsset(asset: string) {
   const normalized = normalizeAsset(asset);
   return !normalized || normalized === "UNKNOWN";
+}
+
+function readRawValue(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : null;
+  }
+  return null;
+}
+
+function readRawContractValue(rawContract: Record<string, unknown> | null, category: string) {
+  const rawValue = typeof rawContract?.value === "string" ? rawContract.value.trim() : "";
+  if (!rawValue) return null;
+
+  const baseUnits = parseBaseUnits(rawValue);
+  if (baseUnits === null) return null;
+
+  const decimals = readRawContractDecimals(rawContract?.decimal, category);
+  if (decimals === null) return null;
+
+  return Number(baseUnits) / 10 ** decimals;
+}
+
+function parseBaseUnits(value: string) {
+  try {
+    return value.startsWith("0x") ? BigInt(value) : BigInt(value);
+  } catch {
+    return null;
+  }
+}
+
+function readRawContractDecimals(value: unknown, category: string) {
+  if (typeof value === "number" && Number.isInteger(value) && value >= 0) return value;
+  if (typeof value === "string" && value.trim()) {
+    const numeric = value.startsWith("0x") ? Number.parseInt(value, 16) : Number(value);
+    return Number.isInteger(numeric) && numeric >= 0 ? numeric : null;
+  }
+  return category === "external" || category === "internal" ? 18 : null;
 }
 
 function normalizeOptionalAddress(address?: string) {

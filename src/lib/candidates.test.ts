@@ -245,6 +245,72 @@ describe("deriveTradeCandidates", () => {
     });
   });
 
+  it("hydrates missing stored native and erc20 amounts from raw base-unit payloads", () => {
+    const hash = "0xbasehydratedamounts";
+    const tokenAddress = "0x0000000000000000000000000000000000002666";
+
+    const candidates = deriveTradeCandidates([
+      activity({
+        hash,
+        chainId: 8453,
+        chainName: "Base",
+        category: "external",
+        asset: "unknown",
+        contractAddress: "",
+        value: 0,
+        fromAddress: wallet,
+        toAddress: "0xrouter",
+        rawPayload: JSON.stringify({
+          blockNum: "0x2cc001",
+          hash,
+          from: wallet,
+          to: "0xrouter",
+          value: null,
+          asset: "ETH",
+          category: "external",
+          rawContract: { value: "0xb1a2bc2ec50000", address: null, decimal: null },
+          metadata: { blockTimestamp: "2026-06-04T18:12:00.000Z" },
+          chainId: 8453,
+          chainName: "Base"
+        })
+      }),
+      activity({
+        hash,
+        chainId: 8453,
+        chainName: "Base",
+        category: "erc20",
+        asset: "unknown",
+        contractAddress: "",
+        value: 0,
+        fromAddress: "0xrouter",
+        toAddress: wallet,
+        rawPayload: JSON.stringify({
+          blockNum: "0x2cc001",
+          hash,
+          from: "0xrouter",
+          to: wallet,
+          value: null,
+          asset: "MIG",
+          category: "erc20",
+          rawContract: { value: "0x75bcd15", address: tokenAddress, decimal: "0x6" },
+          metadata: { blockTimestamp: "2026-06-04T18:12:00.000Z" },
+          chainId: 8453,
+          chainName: "Base"
+        })
+      })
+    ]);
+
+    expect(candidates[0]).toMatchObject({
+      status: "decoded",
+      side: "buy",
+      tokenInAsset: "ETH",
+      tokenInAmount: 0.05,
+      tokenOutAsset: "MIG",
+      tokenOutAddress: tokenAddress,
+      tokenOutAmount: 123.456789
+    });
+  });
+
   it("keeps the real SNOWY native ETH buy review-only when the token address is missing", () => {
     const hash = "0x01c4f37290feb54c9cf2ed651baae6839bf1644f880b65db066b9fcdc9ef1b8c";
     const realWallet = "0x26f07199c35b4bc4e37935484d14bbdbcc9d6f9f";
