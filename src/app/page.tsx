@@ -20,7 +20,7 @@ import {
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { candidateCopyTokenAddress, classifyCandidateTrust } from "@/lib/candidateTrust";
 import { isQuoteStale } from "@/lib/quoteAge";
-import { DEFAULT_COPY_SETTINGS, DEFAULT_GAS_BUFFER_BPS, DEFAULT_SLIPPAGE_BPS } from "@/lib/constants";
+import { BASE_CHAIN_ID, DEFAULT_COPY_SETTINGS, DEFAULT_GAS_BUFFER_BPS, DEFAULT_SLIPPAGE_BPS } from "@/lib/constants";
 import { formatNumber, formatUsd, formatUsdPrice } from "@/lib/money";
 import type {
   CopySettings,
@@ -148,6 +148,9 @@ export default function Home() {
   const [activity, setActivity] = useState<WalletActivity[]>([]);
   const [candidates, setCandidates] = useState<TradeCandidate[]>([]);
   const [copyResults, setCopyResults] = useState<Record<string, CopyResult>>({});
+  const [positionPrices, setPositionPrices] = useState<Record<string, number>>({});
+  const [pricesFetchedAt, setPricesFetchedAt] = useState<number | null>(null);
+  const [isPricesStale, setIsPricesStale] = useState(false);
   const [lossOfferTokenAddress, setLossOfferTokenAddress] = useState("");
   const [activityContext, setActivityContext] = useState<{
     label: string;
@@ -193,6 +196,14 @@ export default function Home() {
     }, 30_000);
     return () => clearInterval(interval);
   }, [fetchedAt]);
+
+  useEffect(() => {
+    if (!pricesFetchedAt) return;
+    const interval = setInterval(() => {
+      if (isQuoteStale(pricesFetchedAt, Date.now(), 120_000)) setIsPricesStale(true);
+    }, 30_000);
+    return () => clearInterval(interval);
+  }, [pricesFetchedAt]);
 
   const selectedPosition = useMemo(
     () =>
@@ -308,6 +319,32 @@ export default function Home() {
         setLossOfferTokenAddress(selectedPosition.tokenAddress);
       }
       setError(reason);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function fetchPositionPrices() {
+    if (!data?.positions.length) return;
+    setBusy("prices");
+    setError("");
+    setIsPricesStale(false);
+    try {
+      const tokens = data.positions.map((p) => p.tokenAddress).join(",");
+      const response = await fetch(`/api/prices?tokens=${tokens}&chainId=${BASE_CHAIN_ID}`, { cache: "no-store" });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error ?? "Could not fetch prices.");
+      const raw = payload.prices as Record<string, number | null>;
+      const resolved: Record<string, number> = {};
+      for (const [addr, price] of Object.entries(raw)) {
+        if (typeof price === "number" && Number.isFinite(price) && price > 0) {
+          resolved[addr] = price;
+        }
+      }
+      setPositionPrices(resolved);
+      setPricesFetchedAt(Date.now());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not fetch prices.");
     } finally {
       setBusy("");
     }
@@ -1152,10 +1189,30 @@ export default function Home() {
             <div className="row">
               <h2>Positions</h2>
               <span className="pill">{data?.positions.length ?? 0} open</span>
+              <button
+                className="button secondary"
+                onClick={() => fetchPositionPrices()}
+                disabled={busy === "prices" || !data?.positions.length}
+                title="Fetch current prices for open positions"
+              >
+                {busy === "prices" ? <Loader2 size={18} /> : <RefreshCw size={18} />}
+                Refresh prices
+              </button>
             </div>
+            {isPricesStale && (
+              <div className="alert">
+                ⚠ Position prices are over 2 minutes old — values may have moved. Consider refreshing.
+              </div>
+            )}
             <div className="list">
               {data?.positions.length ? (
-                data.positions.map((position) => (
+                data.positions.map((position) => {
+                  const currentPrice = positionPrices[position.tokenAddress];
+                  const currentValueUsd = currentPrice !== undefined ? currentPrice * position.quantity : undefined;
+                  const unrealizedPnlUsd = currentPrice !== undefined
+                    ? (currentPrice - position.averageEntryUsd) * position.quantity
+                    : undefined;
+                  return (
                   <article className="card" key={position.tokenAddress}>
                     <div className="row">
                       <div>
@@ -1184,9 +1241,15 @@ export default function Home() {
                       <Mini label="Avg entry" value={formatUsdPrice(position.averageEntryUsd)} />
                       <Mini label="Cost basis" value={formatUsd(position.costBasisUsd)} />
                       <Mini label="Fees" value={formatUsd(position.feesPaidUsd)} />
+                      <Mini
+                        label="Current value"
+                        value={currentValueUsd !== undefined ? formatUsd(currentValueUsd) : "-"}
+                      />
+                      <UnrealizedPnl value={unrealizedPnlUsd} />
                     </div>
                   </article>
-                ))
+                  );
+                })
               ) : (
                 <p className="subtle">Open positions will appear after your first paper buy.</p>
               )}
@@ -1375,6 +1438,23 @@ function Mini({ label, value }: { label: string; value: string }) {
     <div>
       <label>{label}</label>
       <p>{value}</p>
+    </div>
+  );
+}
+
+function UnrealizedPnl({ value }: { value: number | undefined }) {
+  if (value === undefined) {
+    return (
+      <div>
+        <label>Unrealized P&amp;L</label>
+        <p>-</p>
+      </div>
+    );
+  }
+  return (
+    <div>
+      <label>Unrealized P&amp;L</label>
+      <p className={value >= 0 ? "good" : "bad"}>{formatUsd(value)}</p>
     </div>
   );
 }
