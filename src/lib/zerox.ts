@@ -105,12 +105,6 @@ export function normalizeZeroxPriceQuote(
   }
 
   const { dexFeeUsd, unpriced } = summarizeDexFees(rawResponse, params.chainId);
-  if (unpriced.length) {
-    const tokens = unpriced.map((fee) => fee.token).join(", ");
-    warnings.push(
-      `0x reported a fee in ${tokens} that the simulator could not value in USD; the real cost is higher than shown.`
-    );
-  }
 
   return {
     provider: "0x",
