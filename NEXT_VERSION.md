@@ -37,9 +37,11 @@ Latest verification after the import/restore work:
 - End-to-end smoke check against the real `data/paper-trader.db`: rejection paths return the expected 400 messages (`schemaVersion 2`, missing collections, non-object); a real export → add throwaway wallet → import-the-export round-trip dropped the throwaway (wallets 4 → 3), restored all 13 trades, and `GET /api/ledger/verify` returned `ok:true`.
 
 Best next candidate for the CLI session: add a dashboard control for the stored-activity reprocess
-preview/apply route, or continue wallet activity parsing hardening with more real Base/review-only
-fixtures. Alternative next slice: quote reliability hardening (Build Next #1), or persistence ops
-follow-up (Build Next #6) with a paper portfolio archive workflow.
+preview/apply route. If I had to pick one thing, that is the best next step because the backend is
+already in place, the real DB has been reprocessed cleanly, and the UI still has no in-app way to
+preview/apply the operation. Secondary option: continue wallet activity parsing hardening with more
+real Base/review-only fixtures. Alternative next slice: quote reliability hardening (Build Next #1),
+or persistence ops follow-up (Build Next #6) with a paper portfolio archive workflow.
 
 Just completed: the local import/restore flow. A pure zod validator (`src/lib/importBundle.ts`, `parseImportBundle` + `summarizeImportBundle`) enforces `schemaVersion: 1` and strips derived fields; `importLocalData` in `repositories.ts` does a single-transaction replace-all that preserves original IDs/timestamps (so ledger verify still matches), deleting child-first and inserting parent-first under `foreign_keys = ON`. Routes `POST /api/import/preview` (summary, no write) and `POST /api/import` share the validator. The dashboard has an "Import data" button that previews → `window.confirm` summary → imports → `window.location.reload()`. Derived fields (`positions`, `candidateAttention`, `copySettings`, portfolio totals, `app`/`exportedAt`) are intentionally ignored on import; `copy_settings` rides in via the `settings` array. Spec/plan: `docs/superpowers/specs/2026-06-05-local-import-restore-design.md` and `docs/superpowers/plans/2026-06-05-local-import-restore.md`.
 

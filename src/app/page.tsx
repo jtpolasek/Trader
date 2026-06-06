@@ -6,6 +6,7 @@ import {
   Download,
   Eye,
   History,
+  ListRestart,
   Loader2,
   Plus,
   RefreshCw,
@@ -561,6 +562,48 @@ export default function Home() {
     }
   }
 
+  async function reprocessStoredCandidates() {
+    setBusy("reprocess-candidates");
+    setError("");
+    setMessage("");
+    try {
+      const previewResponse = await fetch("/api/candidates/reprocess", { cache: "no-store" });
+      const previewPayload = await previewResponse.json();
+      if (!previewResponse.ok) {
+        throw new Error(previewPayload.error ?? "Could not preview stored activity candidates.");
+      }
+
+      const s = previewPayload.summary as {
+        stored: number; derived: number; missing: number;
+        newDecoded: number; newReview: number; newSkipped: number;
+      };
+      if (s.missing === 0) {
+        setMessage(`No new candidates to reprocess (stored ${s.stored}, derived ${s.derived}).`);
+        return;
+      }
+
+      const confirmed = window.confirm(
+        `Reprocess stored wallet activity into ${s.missing} missing candidate(s)?\n\n` +
+          `- ${s.newDecoded} decoded\n` +
+          `- ${s.newReview} review\n` +
+          `- ${s.newSkipped} skipped\n\n` +
+          "Existing candidates (including copied/failed) are left untouched. Continue?"
+      );
+      if (!confirmed) return;
+
+      const applyResponse = await fetch("/api/candidates/reprocess", { method: "POST" });
+      const applyPayload = await applyResponse.json();
+      if (!applyResponse.ok) {
+        throw new Error(applyPayload.error ?? "Could not reprocess stored activity candidates.");
+      }
+
+      window.location.reload();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not reprocess stored activity candidates.");
+      setBusy("");
+    }
+  }
+
   function buildTradePayload() {
     const sellQuantity =
       tradeForm.tokenQuantity || (selectedPosition?.quantity ? String(selectedPosition.quantity) : "");
@@ -626,6 +669,15 @@ export default function Home() {
         >
           {busy === "export-data" ? <Loader2 size={18} /> : <Download size={18} />}
           Export data
+        </button>
+        <button
+          className="button secondary"
+          onClick={() => reprocessStoredCandidates()}
+          disabled={busy === "reprocess-candidates"}
+          title="Reprocess stored wallet activity into missing trade candidates"
+        >
+          {busy === "reprocess-candidates" ? <Loader2 size={18} /> : <ListRestart size={18} />}
+          Reprocess
         </button>
         <button
           className="button danger"
