@@ -173,7 +173,7 @@ export async function buildQuotePreview(input: {
     { address: chainTokens.usdc.address, usdPrice: 1, decimals: chainTokens.usdc.decimals },
     { address: input.token.address, usdPrice: derivedTokenPriceUsd, decimals: input.token.decimals }
   ];
-  const { valuedUsd, stillUnpriced } = valueUnpricedFees(quote.unpricedFees ?? [], anchors);
+  const { valuedUsd, pricedTokens, stillUnpriced } = valueUnpricedFees(quote.unpricedFees ?? [], anchors);
 
   const dexFeeUsd = quote.dexFeeUsd + valuedUsd;
   const warnings = [...quote.warnings];
@@ -203,6 +203,7 @@ export async function buildQuotePreview(input: {
       dexFeeUsd
     },
     valuedFeeUsd: valuedUsd,
+    valuedFeeTokens: pricedTokens,
     stillUnpricedFees: stillUnpriced,
     normalizedQuote: withoutRawResponse(quote),
     rawQuote: quote.rawResponse
