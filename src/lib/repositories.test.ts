@@ -439,6 +439,90 @@ describe("resetPaperPortfolio", () => {
   });
 });
 
+describe("paper portfolio archives", () => {
+  it("restores archived paper state without replacing watch data or settings", async () => {
+    const {
+      createPaperPortfolioArchive,
+      getCopySettings,
+      getPortfolio,
+      insertQuote,
+      listLedgerEntries,
+      listPaperPortfolioArchives,
+      listPositions,
+      listTradeCandidates,
+      listTrades,
+      listWallets,
+      recordTrade,
+      restorePaperPortfolioArchive,
+      resetPaperPortfolio,
+      updateCopySettings,
+      updateTradeCandidateCopyResult,
+      updateTradeCandidateStatus,
+      upsertToken,
+      upsertTradeCandidates,
+      upsertWallet
+    } = await import("./repositories");
+    const token = seedToken(upsertToken);
+    upsertWallet({ address: "0xwallet", label: "Wallet", notes: "keep", gmgnUrl: "" });
+    updateCopySettings({ ...getCopySettings(), fixedUsd: 222 });
+    upsertTradeCandidates([candidateInput({ hash: "0xarchivecandidate", tokenOutAddress: token.address })]);
+    const candidate = listTradeCandidates("0xwallet")[0];
+    updateTradeCandidateStatus(candidate.id, "copied", "Copied into paper portfolio as trade trade-1.");
+    updateTradeCandidateCopyResult({
+      id: candidate.id,
+      status: "copied",
+      reason: "Copied into paper portfolio as trade trade-1.",
+      tradeId: "trade-1"
+    });
+    insertQuote({
+      tokenAddress: token.address,
+      side: "buy",
+      quantity: 10,
+      priceUsd: 10,
+      notionalUsd: 100,
+      gasUsd: 5,
+      slippageUsd: 1,
+      dexFeeUsd: 0,
+      quoteSnapshot: "{}"
+    });
+    const tradeId = recordTrade(tradeInput({ tokenAddress: token.address }));
+    updateTradeCandidateCopyResult({
+      id: candidate.id,
+      status: "copied",
+      reason: `Copied into paper portfolio as trade ${tradeId}.`,
+      tradeId
+    });
+
+    const archive = createPaperPortfolioArchive("Before risky run");
+    expect(listPaperPortfolioArchives()[0]).toMatchObject({
+      id: archive.id,
+      name: "Before risky run",
+      tradeCount: 1,
+      ledgerEntryCount: 1,
+      quoteCount: 1,
+      copiedCandidateCount: 1
+    });
+
+    resetPaperPortfolio();
+    recordTrade(tradeInput({ tokenAddress: token.address, quantity: 1, notionalUsd: 10, totalCostUsd: 11 }));
+    expect(listTrades()[0].quantity).toBe(1);
+
+    restorePaperPortfolioArchive(archive.id);
+
+    expect(listTrades()).toEqual([expect.objectContaining({ id: tradeId, quantity: 10 })]);
+    expect(listLedgerEntries()).toHaveLength(1);
+    expect(listPositions()).toEqual([expect.objectContaining({ tokenAddress: token.address, quantity: 10 })]);
+    expect(getPortfolio().cashUsd).toBeLessThan(getPortfolio().startingCashUsd);
+    expect(listWallets()).toEqual([expect.objectContaining({ address: "0xwallet", notes: "keep" })]);
+    expect(getCopySettings()).toMatchObject({ fixedUsd: 222 });
+    expect(listTradeCandidates("0xwallet")[0]).toMatchObject({
+      status: "copied",
+      lastCopyStatus: "copied",
+      lastCopyTradeId: tradeId
+    });
+  });
+});
+
 describe("wallet activity token hints", () => {
   it("extracts token symbol and decimals from stored raw transfer payloads", async () => {
     const { getWalletActivityTokenHint, insertWalletActivity, upsertWallet } = await import("./repositories");

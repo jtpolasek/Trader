@@ -70,6 +70,29 @@ export type StoredActivityCandidateReprocessResult = {
   candidates: Omit<TradeCandidate, "id" | "createdAt" | "updatedAt">[];
 };
 
+export type PaperPortfolioArchiveSummary = {
+  id: string;
+  name: string;
+  tradeCount: number;
+  ledgerEntryCount: number;
+  quoteCount: number;
+  copiedCandidateCount: number;
+  createdAt: string;
+};
+
+type CandidateCopySnapshot = Pick<
+  TradeCandidate,
+  "id" | "status" | "reason" | "lastCopyStatus" | "lastCopyBucket" | "lastCopyReason" | "lastCopyTradeId" | "lastCopyAt"
+>;
+
+type PaperPortfolioArchivePayload = {
+  schemaVersion: 1;
+  trades: Trade[];
+  ledgerEntries: LedgerEntry[];
+  quotes: QuoteExport[];
+  candidateCopies: CandidateCopySnapshot[];
+};
+
 const now = () => new Date().toISOString();
 
 
@@ -829,6 +852,134 @@ export function resetPaperPortfolio() {
   return getPortfolio();
 }
 
+export function listPaperPortfolioArchives(): PaperPortfolioArchiveSummary[] {
+  return (getDb()
+    .prepare(
+      `SELECT id, name, payload, created_at
+       FROM paper_portfolio_archives
+       ORDER BY created_at DESC`
+    )
+    .all() as Row[]).map(rowToPaperPortfolioArchiveSummary);
+}
+
+export function createPaperPortfolioArchive(name?: string): PaperPortfolioArchiveSummary {
+  const id = randomUUID();
+  const createdAt = now();
+  const payload = currentPaperPortfolioArchivePayload();
+  const archiveName = name?.trim() || `Paper portfolio ${createdAt.slice(0, 16).replace("T", " ")}`;
+
+  getDb()
+    .prepare("INSERT INTO paper_portfolio_archives (id, name, payload, created_at) VALUES (?, ?, ?, ?)")
+    .run(id, archiveName, JSON.stringify(payload), createdAt);
+
+  return archiveSummaryFromPayload({ id, name: archiveName, payload, createdAt });
+}
+
+export function restorePaperPortfolioArchive(id: string): { portfolio: Portfolio; archive: PaperPortfolioArchiveSummary } {
+  const row = getDb().prepare("SELECT * FROM paper_portfolio_archives WHERE id = ?").get(id) as Row | undefined;
+  if (!row) throw new Error("Paper portfolio archive was not found.");
+
+  const payload = parsePaperPortfolioArchivePayload(String(row.payload));
+  const db = getDb();
+  const timestamp = now();
+  db.exec("BEGIN");
+  try {
+    db.prepare("DELETE FROM ledger_entries").run();
+    db.prepare("DELETE FROM trades").run();
+    db.prepare("DELETE FROM quotes").run();
+
+    const insertTradeRow = db.prepare(
+      `INSERT INTO trades
+        (id, side, token_address, chain_id, quantity, price_usd, notional_usd, gas_usd, slippage_usd, dex_fee_usd, total_cost_usd, realized_pnl_usd, quote_snapshot, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    );
+    for (const tr of payload.trades) {
+      insertTradeRow.run(
+        tr.id, tr.side, tr.tokenAddress, tr.chainId, tr.quantity, tr.priceUsd, tr.notionalUsd, tr.gasUsd,
+        tr.slippageUsd, tr.dexFeeUsd, tr.totalCostUsd, tr.realizedPnlUsd, tr.quoteSnapshot, tr.createdAt
+      );
+    }
+
+    const insertLedger = db.prepare(
+      `INSERT INTO ledger_entries
+        (id, entry_type, trade_id, token_address, chain_id, cash_delta, quantity_delta, cost_basis_delta, realized_pnl_delta, fee_delta, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    );
+    for (const e of payload.ledgerEntries) {
+      insertLedger.run(
+        e.id, e.entryType, e.tradeId, e.tokenAddress, e.chainId, e.cashDelta, e.quantityDelta,
+        e.costBasisDelta, e.realizedPnlDelta, e.feeDelta, e.createdAt
+      );
+    }
+
+    const insertQuoteRow = db.prepare(
+      `INSERT INTO quotes
+        (id, token_address, side, quantity, price_usd, notional_usd, gas_usd, slippage_usd, dex_fee_usd, quote_snapshot, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    );
+    for (const q of payload.quotes) {
+      insertQuoteRow.run(
+        q.id, q.tokenAddress, q.side, q.quantity, q.priceUsd, q.notionalUsd, q.gasUsd,
+        q.slippageUsd, q.dexFeeUsd, q.quoteSnapshot, q.createdAt
+      );
+    }
+
+    db
+      .prepare(
+        `UPDATE trade_candidates
+         SET status = CASE
+             WHEN status IN ('copied', 'failed') THEN 'candidate'
+             ELSE status
+           END,
+           reason = CASE
+             WHEN status IN ('copied', 'failed') THEN 'Paper portfolio archive was restored; review this candidate before copying again.'
+             ELSE reason
+           END,
+           last_copy_status = '',
+           last_copy_bucket = '',
+           last_copy_reason = '',
+           last_copy_trade_id = '',
+           last_copy_at = '',
+           updated_at = ?`
+      )
+      .run(timestamp);
+
+    const updateCandidate = db.prepare(
+      `UPDATE trade_candidates
+       SET status = ?,
+           reason = ?,
+           last_copy_status = ?,
+           last_copy_bucket = ?,
+           last_copy_reason = ?,
+           last_copy_trade_id = ?,
+           last_copy_at = ?,
+           updated_at = ?
+       WHERE id = ?`
+    );
+    for (const candidate of payload.candidateCopies) {
+      updateCandidate.run(
+        candidate.status,
+        candidate.reason,
+        candidate.lastCopyStatus ?? "",
+        candidate.lastCopyBucket ?? "",
+        candidate.lastCopyReason ?? "",
+        candidate.lastCopyTradeId ?? "",
+        candidate.lastCopyAt ?? "",
+        timestamp,
+        candidate.id
+      );
+    }
+
+    db.prepare("UPDATE portfolios SET updated_at = ? WHERE id = 'default'").run(timestamp);
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
+
+  return { portfolio: getPortfolio(), archive: archiveSummaryFromPayload({ id: String(row.id), name: String(row.name), payload, createdAt: String(row.created_at) }) };
+}
+
 export function getTradeCandidate(id: string): TradeCandidate | null {
   const row = getDb().prepare("SELECT * FROM trade_candidates WHERE id = ?").get(id) as Row | undefined;
   return row ? rowToTradeCandidate(row) : null;
@@ -971,6 +1122,71 @@ function listSettingsForExport(): SettingExport[] {
     key: String(row.key),
     value: String(row.value)
   }));
+}
+
+function currentPaperPortfolioArchivePayload(): PaperPortfolioArchivePayload {
+  return {
+    schemaVersion: 1,
+    trades: listTradesForExport(),
+    ledgerEntries: listLedgerEntries(),
+    quotes: listQuotesForExport(),
+    candidateCopies: listCandidateCopySnapshots()
+  };
+}
+
+function listCandidateCopySnapshots(): CandidateCopySnapshot[] {
+  return listTradeCandidatesForExport()
+    .filter((candidate) => candidate.status === "copied" || candidate.lastCopyStatus)
+    .map((candidate) => ({
+      id: candidate.id,
+      status: candidate.status,
+      reason: candidate.reason,
+      lastCopyStatus: candidate.lastCopyStatus ?? "",
+      lastCopyBucket: candidate.lastCopyBucket ?? "",
+      lastCopyReason: candidate.lastCopyReason ?? "",
+      lastCopyTradeId: candidate.lastCopyTradeId ?? "",
+      lastCopyAt: candidate.lastCopyAt ?? ""
+    }));
+}
+
+function rowToPaperPortfolioArchiveSummary(row: Row): PaperPortfolioArchiveSummary {
+  return archiveSummaryFromPayload({
+    id: String(row.id),
+    name: String(row.name),
+    payload: parsePaperPortfolioArchivePayload(String(row.payload)),
+    createdAt: String(row.created_at)
+  });
+}
+
+function archiveSummaryFromPayload(input: {
+  id: string;
+  name: string;
+  payload: PaperPortfolioArchivePayload;
+  createdAt: string;
+}): PaperPortfolioArchiveSummary {
+  return {
+    id: input.id,
+    name: input.name,
+    tradeCount: input.payload.trades.length,
+    ledgerEntryCount: input.payload.ledgerEntries.length,
+    quoteCount: input.payload.quotes.length,
+    copiedCandidateCount: input.payload.candidateCopies.length,
+    createdAt: input.createdAt
+  };
+}
+
+function parsePaperPortfolioArchivePayload(raw: string): PaperPortfolioArchivePayload {
+  const parsed = JSON.parse(raw) as Partial<PaperPortfolioArchivePayload>;
+  if (parsed.schemaVersion !== 1 || !Array.isArray(parsed.trades) || !Array.isArray(parsed.ledgerEntries) || !Array.isArray(parsed.quotes)) {
+    throw new Error("Paper portfolio archive has an unsupported format.");
+  }
+  return {
+    schemaVersion: 1,
+    trades: parsed.trades,
+    ledgerEntries: parsed.ledgerEntries,
+    quotes: parsed.quotes,
+    candidateCopies: Array.isArray(parsed.candidateCopies) ? parsed.candidateCopies : []
+  };
 }
 
 function rowToWalletActivity(row: Row): WalletActivity {

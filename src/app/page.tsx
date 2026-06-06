@@ -2,6 +2,8 @@
 
 import {
   Activity,
+  Archive,
+  ArchiveRestore,
   BadgeDollarSign,
   Download,
   Eye,
@@ -119,6 +121,16 @@ type CandidateAttention = {
   total: number;
 };
 
+type PaperArchiveSummary = {
+  id: string;
+  name: string;
+  tradeCount: number;
+  ledgerEntryCount: number;
+  quoteCount: number;
+  copiedCandidateCount: number;
+  createdAt: string;
+};
+
 type TradeSignal = {
   label: string;
   tone: "warn" | "bad";
@@ -162,6 +174,7 @@ export default function Home() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [ledgerOk, setLedgerOk] = useState<{ ok: boolean; count: number } | null>(null);
+  const [paperArchives, setPaperArchives] = useState<PaperArchiveSummary[]>([]);
 
   const refresh = async () => {
     const response = await fetch("/api/portfolio", { cache: "no-store" });
@@ -178,9 +191,21 @@ export default function Home() {
     setLedgerOk({ ok: payload.ok, count: payload.mismatches.length });
   };
 
+  const refreshPaperArchives = async () => {
+    const response = await fetch("/api/portfolio/archives", { cache: "no-store" });
+    const payload = await readJsonResponse<{ archives: PaperArchiveSummary[] }>(
+      response,
+      "Could not load paper portfolio archives."
+    );
+    setPaperArchives(payload.archives);
+  };
+
   useEffect(() => {
     refresh().catch((err: unknown) => setError(err instanceof Error ? err.message : "Could not load portfolio."));
     refreshLedgerStatus().catch(() => setLedgerOk(null));
+    refreshPaperArchives().catch((err: unknown) =>
+      setError(err instanceof Error ? err.message : "Could not load paper portfolio archives.")
+    );
   }, []);
 
   useEffect(() => {
@@ -577,6 +602,67 @@ export default function Home() {
     }
   }
 
+  async function archivePaperPortfolio() {
+    const defaultName = `Before experiment ${new Date().toLocaleString()}`;
+    const name = window.prompt("Archive name", defaultName);
+    if (name === null) return;
+
+    setBusy("archive-paper");
+    setError("");
+    setMessage("");
+    try {
+      const response = await fetch("/api/portfolio/archives", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name })
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error ?? "Could not archive paper portfolio.");
+      await refreshPaperArchives();
+      setMessage(`Archived paper portfolio as "${payload.archive.name}".`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not archive paper portfolio.");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function restorePaperPortfolioArchive(archive: PaperArchiveSummary) {
+    const confirmed = window.confirm(
+      `Restore "${archive.name}"?\n\n` +
+        `- ${archive.tradeCount} trades\n` +
+        `- ${archive.ledgerEntryCount} ledger entries\n` +
+        `- ${archive.quoteCount} quotes\n\n` +
+        "This replaces the current paper portfolio but preserves watched wallets, activity, candidates, and settings."
+    );
+    if (!confirmed) return;
+
+    setBusy(`restore-archive-${archive.id}`);
+    setError("");
+    setMessage("");
+    setPreview(null);
+    setFetchedAt(null);
+    setIsStale(false);
+    setPositionPrices({});
+    setPricesFetchedAt(null);
+    setIsPricesStale(false);
+    setLossOfferTokenAddress("");
+    try {
+      const response = await fetch(`/api/portfolio/archives/${archive.id}/restore`, { method: "POST" });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error ?? "Could not restore paper portfolio archive.");
+      setCopyResults({});
+      await refresh();
+      await refreshLedgerStatus();
+      await refreshPaperArchives();
+      setMessage(`Restored paper portfolio archive "${payload.archive.name}".`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not restore paper portfolio archive.");
+    } finally {
+      setBusy("");
+    }
+  }
+
   async function resetPaperPortfolio() {
     if (
       !window.confirm(
@@ -748,6 +834,25 @@ export default function Home() {
           {busy === "reprocess-candidates" ? <Loader2 size={18} /> : <ListRestart size={18} />}
           Reprocess
         </button>
+        <button
+          className="button secondary"
+          onClick={() => archivePaperPortfolio()}
+          disabled={busy === "archive-paper"}
+          title="Archive the current paper trades, ledger, quotes, and copied candidate links"
+        >
+          {busy === "archive-paper" ? <Loader2 size={18} /> : <Archive size={18} />}
+          Archive paper
+        </button>
+        <button
+          className="button secondary"
+          onClick={() => paperArchives[0] && restorePaperPortfolioArchive(paperArchives[0])}
+          disabled={!paperArchives.length || busy.startsWith("restore-archive-")}
+          title={paperArchives[0] ? `Restore ${paperArchives[0].name}` : "No paper archives yet"}
+        >
+          {busy.startsWith("restore-archive-") ? <Loader2 size={18} /> : <ArchiveRestore size={18} />}
+          Restore latest
+        </button>
+        {paperArchives.length ? <span className="pill">{paperArchives.length} archived</span> : null}
         <button
           className="button danger"
           onClick={() => resetPaperPortfolio()}
