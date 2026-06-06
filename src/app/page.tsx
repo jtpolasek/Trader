@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { candidateCopyTokenAddress, classifyCandidateTrust } from "@/lib/candidateTrust";
+import { isQuoteStale } from "@/lib/quoteAge";
 import { DEFAULT_COPY_SETTINGS, DEFAULT_GAS_BUFFER_BPS, DEFAULT_SLIPPAGE_BPS } from "@/lib/constants";
 import { formatNumber, formatUsd, formatUsdPrice } from "@/lib/money";
 import type {
@@ -142,6 +143,8 @@ export default function Home() {
   const [copySettingsForm, setCopySettingsForm] = useState<CopySettingsForm>(initialCopySettingsForm);
   const [walletForm, setWalletForm] = useState({ address: "", label: "", notes: "", gmgnUrl: "" });
   const [preview, setPreview] = useState<QuotePreview | null>(null);
+  const [fetchedAt, setFetchedAt] = useState<number | null>(null);
+  const [isStale, setIsStale] = useState(false);
   const [activity, setActivity] = useState<WalletActivity[]>([]);
   const [candidates, setCandidates] = useState<TradeCandidate[]>([]);
   const [copyResults, setCopyResults] = useState<Record<string, CopyResult>>({});
@@ -182,6 +185,14 @@ export default function Home() {
       setCopySettingsForm(settingsToForm(data.copySettings));
     }
   }, [data?.copySettings]);
+
+  useEffect(() => {
+    if (!fetchedAt) return;
+    const interval = setInterval(() => {
+      if (isQuoteStale(fetchedAt, Date.now(), 120_000)) setIsStale(true);
+    }, 30_000);
+    return () => clearInterval(interval);
+  }, [fetchedAt]);
 
   const selectedPosition = useMemo(
     () =>
@@ -277,6 +288,8 @@ export default function Home() {
     setMessage("");
     setLossOfferTokenAddress("");
     setPreview(null);
+    setFetchedAt(null);
+    setIsStale(false);
     try {
       const response = await fetch("/api/trades/preview", {
         method: "POST",
@@ -286,6 +299,8 @@ export default function Home() {
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error ?? "Could not preview trade.");
       setPreview(payload.preview);
+      setFetchedAt(Date.now());
+      setIsStale(false);
       setMessage("Quote preview ready.");
     } catch (err) {
       const reason = err instanceof Error ? err.message : "Could not preview trade.";
@@ -312,6 +327,8 @@ export default function Home() {
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error ?? "Could not execute trade.");
       setPreview(payload.preview);
+      setFetchedAt(Date.now());
+      setIsStale(false);
       setMessage("Paper trade executed.");
       await refresh();
     } catch (err) {
@@ -526,6 +543,8 @@ export default function Home() {
     setError("");
     setMessage("");
     setPreview(null);
+    setFetchedAt(null);
+    setIsStale(false);
     setLossOfferTokenAddress("");
     try {
       const response = await fetch("/api/portfolio/reset", { method: "POST" });
@@ -768,6 +787,8 @@ export default function Home() {
                     className={tradeForm.side === side ? "active" : ""}
                     onClick={() => {
                       setPreview(null);
+                      setFetchedAt(null);
+                      setIsStale(false);
                       setTradeForm((current) => ({ ...current, side }));
                     }}
                     key={side}
@@ -784,6 +805,8 @@ export default function Home() {
                     value={tradeForm.chainId}
                     onChange={(event) => {
                       setPreview(null);
+                      setFetchedAt(null);
+                      setIsStale(false);
                       setTradeForm({ ...tradeForm, chainId: event.target.value });
                     }}
                   >
