@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TOKENS } from "./constants";
-import { normalizeAlchemyTransfers, resolveTokenFromAlchemy } from "./external";
+import { buildQuotePreview, normalizeAlchemyTransfers, resolveTokenFromAlchemy } from "./external";
 import { getZeroxPrice, normalizeZeroxPriceQuote, summarizeZeroxIssues, ZEROX_PRICE_ENDPOINT } from "./zerox";
 
 const originalAlchemyApiKey = process.env.ALCHEMY_API_KEY;
@@ -312,3 +312,95 @@ function dynamicStringResult(value: string) {
     .join("");
   return `0x${"20".padStart(64, "0")}${value.length.toString(16).padStart(64, "0")}${encoded.padEnd(64, "0")}`;
 }
+
+describe("buildQuotePreview unpriced fee valuation", () => {
+  const BUY_TOKEN = "0xbuytoken0000000000000000000000000000beef";
+  const token = {
+    address: BUY_TOKEN,
+    symbol: "BUY",
+    name: "Buy Token",
+    decimals: 18,
+    createdAt: new Date().toISOString()
+  };
+  const originalApiKey = process.env.ZEROX_API_KEY;
+
+  afterEach(() => {
+    if (originalApiKey === undefined) delete process.env.ZEROX_API_KEY;
+    else process.env.ZEROX_API_KEY = originalApiKey;
+  });
+
+  function mockSwapThenNative(swapQuote: Record<string, unknown>) {
+    process.env.ZEROX_API_KEY = "test-key";
+    return vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(jsonResponse(swapQuote))
+      .mockResolvedValueOnce(
+        jsonResponse({ buyAmount: "3000000000", sellAmount: "1000000000000000000" })
+      );
+  }
+
+  it("values a buy-token-denominated 0x fee and folds it into dexFeeUsd", async () => {
+    mockSwapThenNative({
+      buyAmount: "250000000000000000000",
+      sellAmount: "100000000",
+      gas: "210000",
+      gasPrice: "30000000000",
+      fees: { zeroExFee: { amount: "5000000000000000000", token: BUY_TOKEN, type: "volume" } }
+    });
+
+    const preview = await buildQuotePreview({
+      side: "buy",
+      token,
+      usdAmount: 100,
+      slippageBps: 100,
+      gasBufferBps: 0
+    });
+
+    // 250 tokens for $100 => $0.40/token; 5-token fee => $2.00 valued
+    expect(preview.dexFeeUsd).toBeCloseTo(2, 6);
+    expect(preview.warnings.some((w) => w.includes("could not value in USD"))).toBe(false);
+  });
+
+  it("keeps warning and does not fold a fee in an unknown token", async () => {
+    mockSwapThenNative({
+      buyAmount: "250000000000000000000",
+      sellAmount: "100000000",
+      gas: "210000",
+      gasPrice: "30000000000",
+      fees: { zeroExFee: { amount: "5000000000000000000", token: "0xunknownfeetoken", type: "volume" } }
+    });
+
+    const preview = await buildQuotePreview({
+      side: "buy",
+      token,
+      usdAmount: 100,
+      slippageBps: 100,
+      gasBufferBps: 0
+    });
+
+    expect(preview.dexFeeUsd).toBe(0);
+    expect(preview.warnings.some((w) => w.includes("could not value in USD"))).toBe(true);
+  });
+
+  it("values a sell-side fee in the traded token", async () => {
+    // Sell 1000 tokens -> 400 USDC proceeds => $0.40/token; 5-token zeroExFee => $2.00
+    mockSwapThenNative({
+      buyAmount: "400000000",
+      sellAmount: "1000000000000000000000",
+      gas: "210000",
+      gasPrice: "30000000000",
+      fees: { zeroExFee: { amount: "5000000000000000000", token: BUY_TOKEN, type: "volume" } }
+    });
+
+    const preview = await buildQuotePreview({
+      side: "sell",
+      token,
+      tokenQuantity: 1000,
+      slippageBps: 100,
+      gasBufferBps: 0
+    });
+
+    expect(preview.dexFeeUsd).toBeCloseTo(2, 6);
+    expect(preview.warnings.some((w) => w.includes("could not value in USD"))).toBe(false);
+  });
+});

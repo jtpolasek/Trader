@@ -70,7 +70,7 @@ const params = {
 };
 
 describe("normalizeZeroxPriceQuote unpriced fees", () => {
-  it("warns and carries unpricedFees when a fee cannot be valued", () => {
+  it("carries unpricedFees data without emitting a warning", () => {
     const quote = normalizeZeroxPriceQuote(params, {
       buyAmount: "250000000",
       gas: "210000",
@@ -81,7 +81,7 @@ describe("normalizeZeroxPriceQuote unpriced fees", () => {
     expect(quote.unpricedFees).toEqual([
       { type: "zeroExFee", token: "0xtoken", amount: "5000000000000000000" }
     ]);
-    expect(quote.warnings).toContain(
+    expect(quote.warnings).not.toContain(
       "0x reported a fee in 0xtoken that the simulator could not value in USD; the real cost is higher than shown."
     );
   });
@@ -98,7 +98,7 @@ describe("normalizeZeroxPriceQuote unpriced fees", () => {
     expect(quote.warnings).toEqual([]);
   });
 
-  it("lists multiple unpriced fee tokens in one warning", () => {
+  it("carries multiple unpriced fees as data without a warning", () => {
     const quote = normalizeZeroxPriceQuote(params, {
       buyAmount: "250000000",
       gas: "210000",
@@ -112,8 +112,6 @@ describe("normalizeZeroxPriceQuote unpriced fees", () => {
       { type: "zeroExFee", token: "0xtoken", amount: "5000000000000000000" },
       { type: "integratorFee", token: "0xweth", amount: "1000000000000000000" }
     ]);
-    expect(quote.warnings).toContain(
-      "0x reported a fee in 0xtoken, 0xweth that the simulator could not value in USD; the real cost is higher than shown."
-    );
+    expect(quote.warnings.some((w) => w.includes("could not value in USD"))).toBe(false);
   });
 });

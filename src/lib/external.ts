@@ -2,7 +2,8 @@ import { ETH_CHAIN_ID, getChainTokens } from "./constants";
 import { fromBaseUnits, normalizeAddress, toBaseUnits } from "./money";
 import type { QuotePreview, Token, TradeSide, WalletActivity } from "./types";
 import { assertUsableUniswapQuote, getUniswapQuote } from "./uniswap";
-import { assertUsableZeroxQuote, getZeroxPrice } from "./zerox";
+import { valueUnpricedFees, type FeePriceAnchor } from "./fees";
+import { assertUsableZeroxQuote, getZeroxPrice, type UnpricedFee } from "./zerox";
 
 type AlchemyTransfer = {
   chainId?: number;
@@ -35,6 +36,7 @@ type SwapQuote = {
   gasPriceWei?: number;
   gasUsd?: number;
   dexFeeUsd: number;
+  unpricedFees?: UnpricedFee[];
   warnings: string[];
   rawResponse: unknown;
 };
@@ -157,8 +159,31 @@ export async function buildQuotePreview(input: {
   const ethUsd = await getNativeUsdPrice(chainId);
   const gasEth = ((quote.gasUnits ?? 0) * (quote.gasPriceWei ?? 0)) / 1e18;
   const gasUsd = (quote.gasUsd ?? gasEth * ethUsd) * (1 + input.gasBufferBps / 10_000);
-  const dexFeeUsd = quote.dexFeeUsd;
+
+  const isBuy = input.side === "buy";
+  const buyQuantity = fromBaseUnits(quote.buyAmount, input.token.decimals);
+  const sellProceeds = fromBaseUnits(quote.buyAmount, chainTokens.usdc.decimals);
+  const sellQuantity = input.tokenQuantity ?? 0;
+  const tokenQuantity = isBuy ? buyQuantity : sellQuantity;
+  const tokenNotionalUsd = isBuy ? input.usdAmount ?? 0 : sellProceeds;
+  const derivedTokenPriceUsd = tokenQuantity > 0 ? tokenNotionalUsd / tokenQuantity : 0;
+
+  const anchors: FeePriceAnchor[] = [
+    { address: chainTokens.weth.address, usdPrice: ethUsd, decimals: chainTokens.weth.decimals },
+    { address: chainTokens.usdc.address, usdPrice: 1, decimals: chainTokens.usdc.decimals },
+    { address: input.token.address, usdPrice: derivedTokenPriceUsd, decimals: input.token.decimals }
+  ];
+  const { valuedUsd, pricedTokens, stillUnpriced } = valueUnpricedFees(quote.unpricedFees ?? [], anchors);
+
+  const dexFeeUsd = quote.dexFeeUsd + valuedUsd;
   const warnings = [...quote.warnings];
+  if (stillUnpriced.length) {
+    const tokens = stillUnpriced.map((fee) => fee.token).join(", ");
+    warnings.push(
+      `0x reported a fee in ${tokens} that the simulator could not value in USD; the real cost is higher than shown.`
+    );
+  }
+
   const snapshotBase = {
     provider: "0x",
     quoteKind: "price-preview",
@@ -177,12 +202,15 @@ export async function buildQuotePreview(input: {
       gasUsd: quote.gasUsd,
       dexFeeUsd
     },
+    valuedFeeUsd: valuedUsd,
+    valuedFeeTokens: pricedTokens,
+    stillUnpricedFees: stillUnpriced,
     normalizedQuote: withoutRawResponse(quote),
     rawQuote: quote.rawResponse
   };
 
-  if (input.side === "buy") {
-    const quantity = fromBaseUnits(quote.buyAmount, input.token.decimals);
+  if (isBuy) {
+    const quantity = buyQuantity;
     const notionalUsd = input.usdAmount ?? 0;
     const slippageUsd = notionalUsd * (input.slippageBps / 10_000);
     const totalCostUsd = notionalUsd + gasUsd + slippageUsd + dexFeeUsd;
@@ -202,8 +230,8 @@ export async function buildQuotePreview(input: {
     };
   }
 
-  const quantity = input.tokenQuantity ?? 0;
-  const proceedsUsd = fromBaseUnits(quote.buyAmount, chainTokens.usdc.decimals);
+  const quantity = sellQuantity;
+  const proceedsUsd = sellProceeds;
   const slippageUsd = proceedsUsd * (input.slippageBps / 10_000);
   const totalFees = gasUsd + slippageUsd + dexFeeUsd;
   return {
