@@ -73,7 +73,7 @@ result, and:
   none), and
 - when `unpriced.length > 0`, pushes a single warning into `warnings`:
 
-  > `0x reported a fee in <TOKEN> the simulator could not value in USD; the real cost is higher than shown.`
+  > `0x reported a fee in <TOKEN> that the simulator could not value in USD; the real cost is higher than shown.`
 
   `<TOKEN>` is the fee token address (symbol resolution is out of scope). When
   multiple unpriced fees exist, list their tokens comma-separated in one
