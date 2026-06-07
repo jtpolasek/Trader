@@ -1862,6 +1862,128 @@ function shortId(id: string) {
   return id.length > 8 ? id.slice(0, 8) : id;
 }
 
+type CandidateTab = "actionable" | "review" | "all";
+
+const ACTIONABLE_TRUST = new Set(["Ready", "Copied"]);
+
+function candidateTab(candidate: TradeCandidate): "actionable" | "review" {
+  return ACTIONABLE_TRUST.has(classifyCandidateTrust(candidate).label) ? "actionable" : "review";
+}
+
+function CandidateList({
+  candidates,
+  copyResults,
+  busy,
+  copyCandidate,
+}: {
+  candidates: TradeCandidate[];
+  copyResults: Record<string, CopyResult>;
+  busy: string;
+  copyCandidate: (candidate: TradeCandidate) => void;
+}) {
+  const [activeTab, setActiveTab] = useState<CandidateTab>("actionable");
+  const [visibleCount, setVisibleCount] = useState(5);
+
+  useEffect(() => {
+    setVisibleCount(5);
+  }, [activeTab]);
+
+  const tabCandidates = useMemo(
+    () => (activeTab === "all" ? candidates : candidates.filter((c) => candidateTab(c) === activeTab)),
+    [candidates, activeTab]
+  );
+
+  const visibleCandidates = tabCandidates.slice(0, visibleCount);
+  const remaining = Math.max(0, tabCandidates.length - visibleCount);
+
+  function tabCount(tab: CandidateTab) {
+    if (tab === "all") return candidates.length;
+    return candidates.filter((c) => candidateTab(c) === tab).length;
+  }
+
+  return (
+    <div>
+      <div className="tab-row">
+        {(["actionable", "review", "all"] as CandidateTab[]).map((tab) => (
+          <button
+            key={tab}
+            className={`tab-button${activeTab === tab ? " active" : ""}`}
+            onClick={() => setActiveTab(tab)}
+          >
+            {tab.charAt(0).toUpperCase() + tab.slice(1)}{" "}
+            <span className="pill">{tabCount(tab)}</span>
+          </button>
+        ))}
+      </div>
+      <div className="candidate-list">
+        {visibleCandidates.map((candidate) => {
+          const isCopying = busy === `copy-${candidate.id}`;
+          const visibleCopyResult = isCopying
+            ? null
+            : copyResults[candidate.id] ?? candidateLastCopyResult(candidate);
+          const trust = classifyCandidateTrust(candidate);
+          return (
+            <article className="candidate" key={candidate.id}>
+              <div className="row">
+                <div>
+                  <div className="activity-meta">
+                    <span className={candidateStatusClass(candidate.status)}>{candidate.status}</span>
+                    <span className={`pill ${trust.tone}`} title={trust.title}>{trust.label}</span>
+                    <span className="pill">{candidate.chainName}</span>
+                    <span className="pill">{Math.round(candidate.confidence * 100)}% confidence</span>
+                  </div>
+                  <h3>{candidateTitle(candidate)}</h3>
+                  <TimestampLine timestamp={candidate.sourceTimestamp} />
+                  <p className="subtle">{candidate.reason}</p>
+                  {candidateCopyTokenAddress(candidate) ? (
+                    <p className="mono subtle">{candidateCopyTokenAddress(candidate)}</p>
+                  ) : null}
+                  <ExplorerLink chainId={candidate.chainId} hash={candidate.hash} />
+                </div>
+                {trust.copyable ? (
+                  <button
+                    className="button secondary"
+                    onClick={() => copyCandidate(candidate)}
+                    disabled={isCopying}
+                    title={candidateCopyButtonTitle(candidate, copyResults[candidate.id])}
+                  >
+                    {isCopying ? <Loader2 size={18} /> : <Send size={18} />}
+                    {candidateCopyButtonLabel(candidate, copyResults[candidate.id])}
+                  </button>
+                ) : trust.label === "Copied" ? null : (
+                  <button className="button secondary" disabled title={trust.title}>
+                    <Eye size={18} />
+                    Review
+                  </button>
+                )}
+              </div>
+              <div className="grid dashboard-grid">
+                <Mini label="Input" value={`${formatNumber(candidate.tokenInAmount, 6)} ${candidate.tokenInAsset || "-"}`} />
+                <Mini
+                  label="Output"
+                  value={`${formatNumber(candidate.tokenOutAmount, 6)} ${candidate.tokenOutAsset || "-"}`}
+                />
+                <Mini label="Transfers" value={String(candidate.transferCount)} />
+                <Mini label="Side" value={candidate.side} />
+              </div>
+              {visibleCopyResult ? <CopyResultPanel result={visibleCopyResult} /> : null}
+            </article>
+          );
+        })}
+      </div>
+      {remaining > 0 ? (
+        <button
+          className="button secondary"
+          style={{ width: "100%", justifyContent: "center", marginTop: 4 }}
+          onClick={() => setVisibleCount((n) => n + 10)}
+        >
+          Show {Math.min(10, remaining)} more ({remaining} remaining in {activeTab})
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
 function getCandidateStats(candidates: TradeCandidate[]) {
   return candidates.reduce(
     (stats, candidate) => {
