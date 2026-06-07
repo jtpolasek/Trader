@@ -348,6 +348,12 @@ textarea {
   color: var(--foreground);
 }
 
+.show-more-button {
+  width: 100%;
+  justify-content: center;
+  margin-top: 4px;
+}
+
 .status-strip {
   display: flex;
   flex-wrap: wrap;

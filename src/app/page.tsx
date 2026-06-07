@@ -1884,10 +1884,6 @@ function CandidateList({
   const [activeTab, setActiveTab] = useState<CandidateTab>("actionable");
   const [visibleCount, setVisibleCount] = useState(5);
 
-  useEffect(() => {
-    setVisibleCount(5);
-  }, [activeTab]);
-
   const tabCandidates = useMemo(
     () => (activeTab === "all" ? candidates : candidates.filter((c) => candidateTab(c) === activeTab)),
     [candidates, activeTab]
@@ -1896,10 +1892,10 @@ function CandidateList({
   const visibleCandidates = tabCandidates.slice(0, visibleCount);
   const remaining = Math.max(0, tabCandidates.length - visibleCount);
 
-  function tabCount(tab: CandidateTab) {
-    if (tab === "all") return candidates.length;
-    return candidates.filter((c) => candidateTab(c) === tab).length;
-  }
+  const tabCounts = useMemo(() => {
+    const actionable = candidates.filter((c) => candidateTab(c) === "actionable").length;
+    return { actionable, review: candidates.length - actionable, all: candidates.length };
+  }, [candidates]);
 
   return (
     <div>
@@ -1908,10 +1904,10 @@ function CandidateList({
           <button
             key={tab}
             className={`tab-button${activeTab === tab ? " active" : ""}`}
-            onClick={() => setActiveTab(tab)}
+            onClick={() => { setActiveTab(tab); setVisibleCount(5); }}
           >
-            {tab.charAt(0).toUpperCase() + tab.slice(1)}{" "}
-            <span className="pill">{tabCount(tab)}</span>
+            {{ actionable: "Actionable", review: "Review", all: "All" }[tab]}{" "}
+            <span className="pill">{tabCounts[tab]}</span>
           </button>
         ))}
       </div>
@@ -1973,8 +1969,7 @@ function CandidateList({
       </div>
       {remaining > 0 ? (
         <button
-          className="button secondary"
-          style={{ width: "100%", justifyContent: "center", marginTop: 4 }}
+          className="button secondary show-more-button"
           onClick={() => setVisibleCount((n) => n + 10)}
         >
           Show {Math.min(10, remaining)} more ({remaining} remaining in {activeTab})
