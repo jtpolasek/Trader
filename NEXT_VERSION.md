@@ -145,6 +145,15 @@ Latest verification after the import/restore work:
 State of `main`: clean and pushed. Three wallet parser hardening slices for Build Next #2 are done,
 plus a fixture slice locking in Base multi-router sell behavior.
 
+Just shipped on `main`: Ethereum candidate drift corrections + `--update` flag. 22 Ethereum
+candidates promoted from `skipped` to their correct derived state (13 decoded sell, 9 candidate)
+by running `npm run reprocess:candidates -- --update`. New `--update` flag in
+`scripts/reprocess-candidates.mjs` updates existing `skipped` rows only — never touches copied,
+decoded, candidate, or failed rows. Also adds a decoded Ethereum ECHO sell fixture
+(`0x48868171...`) using real raw_payloads from the DB.
+`reprocess:candidates` now shows `changed: 0`. Verification: `npm test` 16 files / 147 tests,
+`npx tsc --noEmit` clean.
+
 Just shipped on `main`: Base multi-router sell parser fixtures. Three new fixture groups in
 `src/lib/candidates.test.ts` lock in sell-direction inference for Base:
 - **Decoded with noise**: BREAD out + 0.5 ETH primary proceeds + 0.004 ETH noise leg (0.8% <
@@ -328,7 +337,8 @@ Do not rely on 0x Trade Analytics for arbitrary GMGN wallets. It only returns tr
    - DONE: Decode sells with tiny duplicate cash/native refund noise while keeping competing proceeds review-only.
    - DONE: Decode mixed routed sells with tiny ERC-20 reward/rebate noise while keeping large alternate inbound tokens and mixed buy/sell shapes review-only.
    - DONE: Add Base multi-router sell fixtures (decoded-with-noise, competing-proceeds review-only, real skipped multi-outbound). See `src/lib/candidates.test.ts` lines ~1086–1388.
-   - Next parser slice: investigate and apply the 22 pre-existing Ethereum candidate drift cases (`npm run reprocess:candidates` shows skipped→decoded/candidate for Ethereum hashes). Review the changes, apply with `--apply`, and add fixtures for any newly decoded shapes.
+   - DONE: Investigated and applied 22 Ethereum drift corrections. Added `--update` flag to reprocess script. `reprocess:candidates` now shows `changed: 0`.
+   - Next parser slice: add fixtures for remaining newly-decoded Ethereum shapes (OCEAN sells, CALI/COGE/ROI sell candidates) to lock in regression coverage for the promoted candidates.
    - Keep copy actions manual until candidate confidence is much stronger.
 
 3. Improve copy execution ergonomics.
