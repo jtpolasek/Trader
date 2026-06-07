@@ -411,6 +411,14 @@ textarea {
   font-weight: 800;
 }
 
+.good {
+  color: var(--good);
+}
+
+.bad {
+  color: var(--danger);
+}
+
 .pill.good {
   background: #dff4e8;
   color: var(--good);
