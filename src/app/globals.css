@@ -467,6 +467,14 @@ textarea {
   color: var(--warning);
 }
 
+.good {
+  color: var(--good);
+}
+
+.bad {
+  color: var(--danger);
+}
+
 .table-wrap {
   overflow-x: auto;
 }
