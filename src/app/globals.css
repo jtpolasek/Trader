@@ -321,6 +321,33 @@ textarea {
   margin: 12px 0;
 }
 
+.tab-row {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 12px;
+}
+
+.tab-button {
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 6px 14px;
+}
+
+.tab-button.active {
+  border-bottom-color: var(--accent, #58a6ff);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.tab-button:hover:not(.active) {
+  color: var(--text);
+}
+
 .status-strip {
   display: flex;
   flex-wrap: wrap;
