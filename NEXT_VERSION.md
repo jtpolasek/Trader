@@ -142,10 +142,25 @@ Latest verification after the import/restore work:
 
 ## Resume Here Tomorrow
 
-State of `main`: clean and pushed. Both quote-reliability fee slices are done (detection +
-USD valuation). The most recent few sessions cleared the obvious quote-cost trust gaps, so the
-highest-leverage remaining work shifts back toward **wallet parsing** and **surfacing the new fee
-data in the UI**.
+State of `main`: clean and pushed. Three wallet parser hardening slices for Build Next #2 are done,
+plus a fixture slice locking in Base multi-router sell behavior.
+
+Just shipped on `main`: Base multi-router sell parser fixtures. Three new fixture groups in
+`src/lib/candidates.test.ts` lock in sell-direction inference for Base:
+- **Decoded with noise**: BREAD out + 0.5 ETH primary proceeds + 0.004 ETH noise leg (0.8% <
+  1% threshold) stays decoded at confidence 0.9 — validates `isTinyTransferNoise` on Base.
+- **Review-only competing proceeds**: same shape but secondary ETH at 0.1 ETH (20% of primary)
+  correctly forces `candidate` at confidence 0.72.
+- **Skipped multi-outbound**: real DB hash `0xc2821caa...` (BREAD token, wallet `0xbf26925f...`)
+  with 3 outbound legs and no captured proceeds leg is correctly skipped.
+All addresses use real values from `data/paper-trader.db` (BREAD contract `0xf327abd3...`).
+Verification: `npm test` 16 files / 146 tests pass, `npx tsc --noEmit` clean.
+Note: `npm run reprocess:candidates` shows `changed: 22` — all Ethereum, pre-existing drift
+unrelated to this slice (no parser logic changed). That drift is a natural next target.
+
+Both quote-reliability fee slices are done (detection + USD valuation). The most recent sessions
+cleared the obvious quote-cost trust gaps, so the highest-leverage remaining work shifts back
+toward **wallet parsing**.
 
 Ranked suggestions for the next build, best first:
 
@@ -312,7 +327,8 @@ Do not rely on 0x Trade Analytics for arbitrary GMGN wallets. It only returns tr
    - DONE: Hydrate missing stored transfer amounts from raw base-unit payloads.
    - DONE: Decode sells with tiny duplicate cash/native refund noise while keeping competing proceeds review-only.
    - DONE: Decode mixed routed sells with tiny ERC-20 reward/rebate noise while keeping large alternate inbound tokens and mixed buy/sell shapes review-only.
-   - Next parser slice: add more real Base stored-payload fixtures from the local DB/re-fetch flow, especially multi-router sells and failed/review-only cases, then compare `npm run reprocess:candidates` preview counts before applying.
+   - DONE: Add Base multi-router sell fixtures (decoded-with-noise, competing-proceeds review-only, real skipped multi-outbound). See `src/lib/candidates.test.ts` lines ~1086–1388.
+   - Next parser slice: investigate and apply the 22 pre-existing Ethereum candidate drift cases (`npm run reprocess:candidates` shows skipped→decoded/candidate for Ethereum hashes). Review the changes, apply with `--apply`, and add fixtures for any newly decoded shapes.
    - Keep copy actions manual until candidate confidence is much stronger.
 
 3. Improve copy execution ergonomics.
