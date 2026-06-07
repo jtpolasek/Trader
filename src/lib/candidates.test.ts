@@ -1461,4 +1461,182 @@ describe("deriveTradeCandidates", () => {
     expect(candidates[0].tokenInAddress).toBe(echoContract);
     expect(candidates[0].tokenOutAsset).toBe("ETH");
   });
+
+  it("decodes a real Ethereum OCEAN sell from erc20 token-out and internal ETH-in", () => {
+    // Real raw_payloads from paper-trader.db hash 0x26be053d... (one of 3 OCEAN sell cases).
+    // Same router pair as ECHO sells — 1inch-style internal ETH return.
+    const hash = "0x26be053d16b547b6d9a30562b8788619724541c94734c2f7a5069ca3bd16e163";
+    const wallet = "0xc5a6bd7693e41b33f7f6fd6de3d82bd8b124ad8d";
+    const oceanContract = "0x3d76e4399448015374981596209dd42a0ffec661";
+    const router = "0x66a9893cc07d91d95644aedd05d03f95e1dba8af";
+    const ethRouter = "0xef6fc636a63859e08ad3479fe456262eed2e5042";
+
+    const candidates = deriveTradeCandidates([
+      activity({
+        walletAddress: wallet,
+        hash,
+        chainId: 1,
+        chainName: "Ethereum",
+        category: "erc20",
+        asset: "OCEAN",
+        contractAddress: oceanContract,
+        value: 9.578480482840625,
+        fromAddress: wallet,
+        toAddress: router,
+        timestamp: "2026-06-04T12:19:11.000Z",
+        rawPayload: JSON.stringify({
+          blockNum: "0x181314b",
+          uniqueId: `${hash}:log:239`,
+          hash,
+          from: wallet,
+          to: router,
+          value: 9.578480482840625,
+          asset: "OCEAN",
+          category: "erc20",
+          rawContract: { value: "0x84ed99400bba40d8", address: oceanContract, decimal: "0x12" },
+          metadata: { blockTimestamp: "2026-06-04T12:19:11.000Z" },
+          chainId: 1,
+          chainName: "Ethereum"
+        })
+      }),
+      activity({
+        walletAddress: wallet,
+        hash,
+        chainId: 1,
+        chainName: "Ethereum",
+        category: "internal",
+        asset: "ETH",
+        contractAddress: "",
+        value: 0.021052929380662715,
+        fromAddress: ethRouter,
+        toAddress: wallet,
+        timestamp: "2026-06-04T12:19:11.000Z",
+        rawPayload: JSON.stringify({
+          blockNum: "0x181314b",
+          uniqueId: `${hash}:internal:8`,
+          hash,
+          from: ethRouter,
+          to: wallet,
+          value: 0.021052929380662715,
+          asset: "ETH",
+          category: "internal",
+          rawContract: { value: "0x4acb8719373dbb", address: null, decimal: "0x12" },
+          metadata: { blockTimestamp: "2026-06-04T12:19:11.000Z" },
+          chainId: 1,
+          chainName: "Ethereum"
+        })
+      })
+    ]);
+
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0].status).toBe("decoded");
+    expect(candidates[0].confidence).toBe(0.9);
+    expect(candidates[0].side).toBe("sell");
+    expect(candidates[0].tokenInAsset).toBe("OCEAN");
+    expect(candidates[0].tokenInAddress).toBe(oceanContract);
+    expect(candidates[0].tokenOutAsset).toBe("ETH");
+  });
+
+  it("keeps a real Ethereum CALI sell candidate review-only when the token has no contract address", () => {
+    // Real raw_payloads from paper-trader.db hash 0x4d3b4d37...
+    // 4-transfer shape: ETH gas out (no rp) + CALI token out (no rp, no contract) +
+    // small ETH routing out + large ETH proceeds in. Token has no stored contract address,
+    // so the parser cannot identify the copy token → candidate at confidence 0.58.
+    const hash = "0x4d3b4d377dcfd8d81151296c041df27d87138640bac8d9de242092779fe6e169";
+    const wallet = "0x26f07199c35b4bc4e37935484d14bbdbcc9d6f9f";
+    const routingContract = "0x734ab9de48f6bab1f2297a34d257cd757deba6aa";
+
+    const candidates = deriveTradeCandidates([
+      // ETH gas sent out — no rawPayload (old stored row without raw data)
+      activity({
+        walletAddress: wallet,
+        hash,
+        chainId: 1,
+        chainName: "Ethereum",
+        category: "external",
+        asset: "ETH",
+        contractAddress: "",
+        value: 0.0001,
+        fromAddress: wallet,
+        toAddress: routingContract,
+        rawPayload: "{}"
+      }),
+      // CALI token sent out — no rawPayload, no contract address stored
+      activity({
+        walletAddress: wallet,
+        hash,
+        chainId: 1,
+        chainName: "Ethereum",
+        category: "erc20",
+        asset: "CALI",
+        contractAddress: "",
+        value: 3113779.254930278,
+        fromAddress: wallet,
+        toAddress: routingContract,
+        rawPayload: "{}"
+      }),
+      // Small internal ETH routing hop out
+      activity({
+        walletAddress: wallet,
+        hash,
+        chainId: 1,
+        chainName: "Ethereum",
+        category: "internal",
+        asset: "ETH",
+        contractAddress: "",
+        value: 0.0001,
+        fromAddress: wallet,
+        toAddress: routingContract,
+        rawPayload: JSON.stringify({
+          blockNum: "0x1806ebe",
+          uniqueId: `${hash}:internal:1_2`,
+          hash,
+          from: wallet,
+          to: routingContract,
+          value: 0.0001,
+          asset: "ETH",
+          category: "internal",
+          rawContract: { value: "0x5af3107a4000", address: null, decimal: "0x12" },
+          metadata: { blockTimestamp: "2026-05-28T13:34:11.000Z" },
+          chainId: 1,
+          chainName: "Ethereum"
+        })
+      }),
+      // ETH proceeds returned to wallet
+      activity({
+        walletAddress: wallet,
+        hash,
+        chainId: 1,
+        chainName: "Ethereum",
+        category: "internal",
+        asset: "ETH",
+        contractAddress: "",
+        value: 0.2096273280957854,
+        fromAddress: routingContract,
+        toAddress: wallet,
+        rawPayload: JSON.stringify({
+          blockNum: "0x1806ebe",
+          uniqueId: `${hash}:internal:1_2_0_5`,
+          hash,
+          from: routingContract,
+          to: wallet,
+          value: 0.2096273280957854,
+          asset: "ETH",
+          category: "internal",
+          rawContract: { value: "0x02e8bef1ba5d11c6", address: null, decimal: "0x12" },
+          metadata: { blockTimestamp: "2026-05-28T13:34:11.000Z" },
+          chainId: 1,
+          chainName: "Ethereum"
+        })
+      })
+    ]);
+
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0].status).toBe("candidate");
+    expect(candidates[0].confidence).toBe(0.58);
+    expect(candidates[0].side).toBe("sell");
+    expect(candidates[0].tokenInAsset).toBe("CALI");
+    expect(candidates[0].tokenInAddress).toBe("");
+    expect(candidates[0].tokenOutAsset).toBe("ETH");
+  });
 });
