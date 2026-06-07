@@ -1082,4 +1082,307 @@ describe("deriveTradeCandidates", () => {
     expect(candidates[0].tokenOutAsset).toBe("ETH");
     expect(candidates[0].reason).toContain("no contract address");
   });
+
+  it("decodes a Base multi-router BREAD sell with a tiny ETH noise leg below the 1% threshold", () => {
+    // Real BREAD contract and wallet from paper-trader.db; synthetic hash.
+    // Primary ETH proceeds = 0.5 ETH; noise leg = 0.004 ETH (0.8% < 1% threshold → decoded).
+    const hash = "0xbreadmultiroutersellhash";
+    const wallet = "0xbf26925f736e90e1715ce4e04cd9c289dd1bc002";
+    const breadContract = "0xf327abd3c9709c9834d0ad1dc253ff6eed86c04d";
+    const tokenRouter = "0xcd6b980029e6e6e0733ac8ec3e02be9410d09799";
+    const ethRouter = "0xb5b216d0eefb621864f7ccc0bc8a9ed1bc1d9e1f";
+    const noiseRouter = "0x5e766616aabfb588e23a8ea854e9dbd1042affd3";
+
+    const candidates = deriveTradeCandidates([
+      activity({
+        walletAddress: wallet,
+        hash,
+        chainId: 8453,
+        chainName: "Base",
+        category: "erc20",
+        asset: "BREAD",
+        contractAddress: breadContract,
+        value: 1618891.924372758,
+        fromAddress: wallet,
+        toAddress: tokenRouter,
+        timestamp: "2025-12-27T08:35:47.000Z",
+        rawPayload: JSON.stringify({
+          blockNum: "0x2629ec0",
+          uniqueId: `${hash}:log:369`,
+          hash,
+          from: wallet,
+          to: tokenRouter,
+          value: 1618891.924372758,
+          asset: "BREAD",
+          category: "erc20",
+          rawContract: { value: "0x5c05fa614fd16", address: breadContract, decimal: "0x9" },
+          metadata: { blockTimestamp: "2025-12-27T08:35:47.000Z" },
+          chainId: 8453,
+          chainName: "Base"
+        })
+      }),
+      activity({
+        walletAddress: wallet,
+        hash,
+        chainId: 8453,
+        chainName: "Base",
+        category: "internal",
+        asset: "ETH",
+        contractAddress: "",
+        value: 0.5,
+        fromAddress: ethRouter,
+        toAddress: wallet,
+        timestamp: "2025-12-27T08:35:47.000Z",
+        rawPayload: JSON.stringify({
+          blockNum: "0x2629ec0",
+          uniqueId: `${hash}:internal:0`,
+          hash,
+          from: ethRouter,
+          to: wallet,
+          value: 0.5,
+          asset: "ETH",
+          category: "internal",
+          rawContract: { value: "0x6f05b59d3b20000", address: null, decimal: null },
+          metadata: { blockTimestamp: "2025-12-27T08:35:47.000Z" },
+          chainId: 8453,
+          chainName: "Base"
+        })
+      }),
+      activity({
+        walletAddress: wallet,
+        hash,
+        chainId: 8453,
+        chainName: "Base",
+        category: "internal",
+        asset: "ETH",
+        contractAddress: "",
+        value: 0.004,
+        fromAddress: noiseRouter,
+        toAddress: wallet,
+        timestamp: "2025-12-27T08:35:47.000Z",
+        rawPayload: JSON.stringify({
+          blockNum: "0x2629ec0",
+          uniqueId: `${hash}:internal:1`,
+          hash,
+          from: noiseRouter,
+          to: wallet,
+          value: 0.004,
+          asset: "ETH",
+          category: "internal",
+          rawContract: { value: "0xe35fa931a0000", address: null, decimal: null },
+          metadata: { blockTimestamp: "2025-12-27T08:35:47.000Z" },
+          chainId: 8453,
+          chainName: "Base"
+        })
+      })
+    ]);
+
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0].status).toBe("decoded");
+    expect(candidates[0].confidence).toBe(0.9);
+    expect(candidates[0].side).toBe("sell");
+    expect(candidates[0].tokenInAsset).toBe("BREAD");
+    expect(candidates[0].tokenInAddress).toBe(breadContract);
+    expect(candidates[0].tokenOutAsset).toBe("ETH");
+  });
+
+  it("keeps a Base BREAD sell review-only when two ETH proceeds legs both exceed the 1% noise threshold", () => {
+    // Primary ETH = 0.5 ETH; secondary ETH = 0.1 ETH (20% of primary >> 1% threshold → candidate).
+    const hash = "0xbreadcompetingproceedshash";
+    const wallet = "0xbf26925f736e90e1715ce4e04cd9c289dd1bc002";
+    const breadContract = "0xf327abd3c9709c9834d0ad1dc253ff6eed86c04d";
+    const tokenRouter = "0xcd6b980029e6e6e0733ac8ec3e02be9410d09799";
+    const ethRouter1 = "0xb5b216d0eefb621864f7ccc0bc8a9ed1bc1d9e1f";
+    const ethRouter2 = "0x5e766616aabfb588e23a8ea854e9dbd1042affd3";
+
+    const candidates = deriveTradeCandidates([
+      activity({
+        walletAddress: wallet,
+        hash,
+        chainId: 8453,
+        chainName: "Base",
+        category: "erc20",
+        asset: "BREAD",
+        contractAddress: breadContract,
+        value: 1618891.924372758,
+        fromAddress: wallet,
+        toAddress: tokenRouter,
+        timestamp: "2025-12-27T08:35:47.000Z",
+        rawPayload: JSON.stringify({
+          blockNum: "0x2629ec0",
+          uniqueId: `${hash}:log:369`,
+          hash,
+          from: wallet,
+          to: tokenRouter,
+          value: 1618891.924372758,
+          asset: "BREAD",
+          category: "erc20",
+          rawContract: { value: "0x5c05fa614fd16", address: breadContract, decimal: "0x9" },
+          metadata: { blockTimestamp: "2025-12-27T08:35:47.000Z" },
+          chainId: 8453,
+          chainName: "Base"
+        })
+      }),
+      activity({
+        walletAddress: wallet,
+        hash,
+        chainId: 8453,
+        chainName: "Base",
+        category: "internal",
+        asset: "ETH",
+        contractAddress: "",
+        value: 0.5,
+        fromAddress: ethRouter1,
+        toAddress: wallet,
+        timestamp: "2025-12-27T08:35:47.000Z",
+        rawPayload: JSON.stringify({
+          blockNum: "0x2629ec0",
+          uniqueId: `${hash}:internal:0`,
+          hash,
+          from: ethRouter1,
+          to: wallet,
+          value: 0.5,
+          asset: "ETH",
+          category: "internal",
+          rawContract: { value: "0x6f05b59d3b20000", address: null, decimal: null },
+          metadata: { blockTimestamp: "2025-12-27T08:35:47.000Z" },
+          chainId: 8453,
+          chainName: "Base"
+        })
+      }),
+      activity({
+        walletAddress: wallet,
+        hash,
+        chainId: 8453,
+        chainName: "Base",
+        category: "internal",
+        asset: "ETH",
+        contractAddress: "",
+        value: 0.1,
+        fromAddress: ethRouter2,
+        toAddress: wallet,
+        timestamp: "2025-12-27T08:35:47.000Z",
+        rawPayload: JSON.stringify({
+          blockNum: "0x2629ec0",
+          uniqueId: `${hash}:internal:1`,
+          hash,
+          from: ethRouter2,
+          to: wallet,
+          value: 0.1,
+          asset: "ETH",
+          category: "internal",
+          rawContract: { value: "0x16345785d8a0000", address: null, decimal: null },
+          metadata: { blockTimestamp: "2025-12-27T08:35:47.000Z" },
+          chainId: 8453,
+          chainName: "Base"
+        })
+      })
+    ]);
+
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0].status).toBe("candidate");
+    expect(candidates[0].confidence).toBe(0.72);
+    expect(candidates[0].side).toBe("sell");
+    expect(candidates[0].tokenInAsset).toBe("BREAD");
+    expect(candidates[0].tokenInAddress).toBe(breadContract);
+    expect(candidates[0].tokenOutAsset).toBe("ETH");
+  });
+
+  it("skips a real Base multi-router BREAD transaction where only outbound legs were captured and no proceeds leg exists", () => {
+    // Real raw_payloads from paper-trader.db hash 0xc2821caa...
+    // Three outbound BREAD legs routed through different contracts; no inbound ETH captured.
+    // Parser correctly skips: no paired inbound+outbound directions found.
+    const wallet = "0xbf26925f736e90e1715ce4e04cd9c289dd1bc002";
+    const hash = "0xc2821caa67f5afe4150131b7eb25a5d4f2ffa0eb0f2d84209a5ba7660245a93e";
+    const breadContract = "0xf327abd3c9709c9834d0ad1dc253ff6eed86c04d";
+
+    const candidates = deriveTradeCandidates([
+      activity({
+        walletAddress: wallet,
+        hash,
+        chainId: 8453,
+        chainName: "Base",
+        category: "erc20",
+        asset: "BREAD",
+        contractAddress: breadContract,
+        value: 4140.176779634,
+        fromAddress: wallet,
+        toAddress: "0xcd6b980029e6e6e0733ac8ec3e02be9410d09799",
+        timestamp: "2025-12-27T08:35:47.000Z",
+        rawPayload: JSON.stringify({
+          blockNum: "0x2629ec0",
+          uniqueId: `${hash}:log:365`,
+          hash,
+          from: wallet,
+          to: "0xcd6b980029e6e6e0733ac8ec3e02be9410d09799",
+          value: 4140.176779634,
+          asset: "BREAD",
+          category: "erc20",
+          rawContract: { value: "0x3c3f5c42972", address: breadContract, decimal: "0x9" },
+          metadata: { blockTimestamp: "2025-12-27T08:35:47.000Z" },
+          chainId: 8453,
+          chainName: "Base"
+        })
+      }),
+      activity({
+        walletAddress: wallet,
+        hash,
+        chainId: 8453,
+        chainName: "Base",
+        category: "erc20",
+        asset: "BREAD",
+        contractAddress: breadContract,
+        value: 33038.610701484,
+        fromAddress: wallet,
+        toAddress: breadContract,
+        timestamp: "2025-12-27T08:35:47.000Z",
+        rawPayload: JSON.stringify({
+          blockNum: "0x2629ec0",
+          uniqueId: `${hash}:log:368`,
+          hash,
+          from: wallet,
+          to: breadContract,
+          value: 33038.610701484,
+          asset: "BREAD",
+          category: "erc20",
+          rawContract: { value: "0x1e0c66a79cac", address: breadContract, decimal: "0x9" },
+          metadata: { blockTimestamp: "2025-12-27T08:35:47.000Z" },
+          chainId: 8453,
+          chainName: "Base"
+        })
+      }),
+      activity({
+        walletAddress: wallet,
+        hash,
+        chainId: 8453,
+        chainName: "Base",
+        category: "erc20",
+        asset: "BREAD",
+        contractAddress: breadContract,
+        value: 1618891.924372758,
+        fromAddress: wallet,
+        toAddress: "0xb5b216d0eefb621864f7ccc0bc8a9ed1bc1d9e1f",
+        timestamp: "2025-12-27T08:35:47.000Z",
+        rawPayload: JSON.stringify({
+          blockNum: "0x2629ec0",
+          uniqueId: `${hash}:log:369`,
+          hash,
+          from: wallet,
+          to: "0xb5b216d0eefb621864f7ccc0bc8a9ed1bc1d9e1f",
+          value: 1618891.924372758,
+          asset: "BREAD",
+          category: "erc20",
+          rawContract: { value: "0x5c05fa614fd16", address: breadContract, decimal: "0x9" },
+          metadata: { blockTimestamp: "2025-12-27T08:35:47.000Z" },
+          chainId: 8453,
+          chainName: "Base"
+        })
+      })
+    ]);
+
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0].status).toBe("skipped");
+    expect(candidates[0].reason).toContain("No paired inbound and outbound");
+    expect(candidates[0].transferCount).toBe(3);
+  });
 });
