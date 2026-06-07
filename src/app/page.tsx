@@ -1555,62 +1555,12 @@ export default function Home() {
               </div>
             ) : null}
             {candidates.length ? (
-              <div className="candidate-list">
-                {candidates.slice(0, 5).map((candidate) => {
-                  const isCopying = busy === `copy-${candidate.id}`;
-                  const visibleCopyResult = isCopying
-                    ? null
-                    : copyResults[candidate.id] ?? candidateLastCopyResult(candidate);
-                  const trust = classifyCandidateTrust(candidate);
-                  return (
-                  <article className="candidate" key={candidate.id}>
-                    <div className="row">
-                      <div>
-                        <div className="activity-meta">
-                          <span className={candidateStatusClass(candidate.status)}>{candidate.status}</span>
-                          <span className={`pill ${trust.tone}`} title={trust.title}>{trust.label}</span>
-                          <span className="pill">{candidate.chainName}</span>
-                          <span className="pill">{Math.round(candidate.confidence * 100)}% confidence</span>
-                        </div>
-                        <h3>{candidateTitle(candidate)}</h3>
-                        <TimestampLine timestamp={candidate.sourceTimestamp} />
-                        <p className="subtle">{candidate.reason}</p>
-                        {candidateCopyTokenAddress(candidate) ? (
-                          <p className="mono subtle">{candidateCopyTokenAddress(candidate)}</p>
-                        ) : null}
-                        <ExplorerLink chainId={candidate.chainId} hash={candidate.hash} />
-                      </div>
-                      {trust.copyable ? (
-                        <button
-                          className="button secondary"
-                          onClick={() => copyCandidate(candidate)}
-                          disabled={isCopying}
-                          title={candidateCopyButtonTitle(candidate, copyResults[candidate.id])}
-                        >
-                          {isCopying ? <Loader2 size={18} /> : <Send size={18} />}
-                          {candidateCopyButtonLabel(candidate, copyResults[candidate.id])}
-                        </button>
-                      ) : trust.label === "Copied" ? null : (
-                        <button className="button secondary" disabled title={trust.title}>
-                          <Eye size={18} />
-                          Review
-                        </button>
-                      )}
-                    </div>
-                    <div className="grid dashboard-grid">
-                      <Mini label="Input" value={`${formatNumber(candidate.tokenInAmount, 6)} ${candidate.tokenInAsset || "-"}`} />
-                      <Mini
-                        label="Output"
-                        value={`${formatNumber(candidate.tokenOutAmount, 6)} ${candidate.tokenOutAsset || "-"}`}
-                      />
-                      <Mini label="Transfers" value={String(candidate.transferCount)} />
-                      <Mini label="Side" value={candidate.side} />
-                    </div>
-                    {visibleCopyResult ? <CopyResultPanel result={visibleCopyResult} /> : null}
-                  </article>
-                );
-                })}
-              </div>
+              <CandidateList
+                candidates={candidates}
+                copyResults={copyResults}
+                busy={busy}
+                copyCandidate={copyCandidate}
+              />
             ) : null}
             <div className="list">
               {activity.slice(0, 8).map((item) => (
