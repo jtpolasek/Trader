@@ -1385,4 +1385,80 @@ describe("deriveTradeCandidates", () => {
     expect(candidates[0].reason).toContain("No paired inbound and outbound");
     expect(candidates[0].transferCount).toBe(3);
   });
+
+  it("decodes a real Ethereum ECHO sell from erc20 token-out and internal ETH-in", () => {
+    // Real raw_payloads from paper-trader.db hash 0x48868171...
+    // Previously stored as skipped; now correctly decoded after hydrateActivityFromRawPayload
+    // recovers the internal ETH transfer direction fields.
+    const hash = "0x48868171957f584f572b8496c1e2f1f5d9e1336ac99ba4c334ae69d163c53b64";
+    const wallet = "0xc5a6bd7693e41b33f7f6fd6de3d82bd8b124ad8d";
+    const echoContract = "0xcaaca3c22141bcfa3dad3662c465bb48ab6736ee";
+    const router = "0x66a9893cc07d91d95644aedd05d03f95e1dba8af";
+    const ethRouter = "0xef6fc636a63859e08ad3479fe456262eed2e5042";
+
+    const candidates = deriveTradeCandidates([
+      activity({
+        walletAddress: wallet,
+        hash,
+        chainId: 1,
+        chainName: "Ethereum",
+        category: "erc20",
+        asset: "ECHO",
+        contractAddress: echoContract,
+        value: 979.3225218159785,
+        fromAddress: wallet,
+        toAddress: router,
+        timestamp: "2026-06-01T04:43:11.000Z",
+        rawPayload: JSON.stringify({
+          blockNum: "0x180d46f",
+          uniqueId: `${hash}:log:49`,
+          hash,
+          from: wallet,
+          to: router,
+          value: 979.3225218159785,
+          asset: "ECHO",
+          category: "erc20",
+          rawContract: { value: "0x3516d484eb252277aa", address: echoContract, decimal: "0x12" },
+          metadata: { blockTimestamp: "2026-06-01T04:43:11.000Z" },
+          chainId: 1,
+          chainName: "Ethereum"
+        })
+      }),
+      activity({
+        walletAddress: wallet,
+        hash,
+        chainId: 1,
+        chainName: "Ethereum",
+        category: "internal",
+        asset: "ETH",
+        contractAddress: "",
+        value: 0.009477321633601129,
+        fromAddress: ethRouter,
+        toAddress: wallet,
+        timestamp: "2026-06-01T04:43:11.000Z",
+        rawPayload: JSON.stringify({
+          blockNum: "0x180d46f",
+          uniqueId: `${hash}:internal:8`,
+          hash,
+          from: ethRouter,
+          to: wallet,
+          value: 0.009477321633601129,
+          asset: "ETH",
+          category: "internal",
+          rawContract: { value: "0x21ab92e5649668", address: null, decimal: "0x12" },
+          metadata: { blockTimestamp: "2026-06-01T04:43:11.000Z" },
+          chainId: 1,
+          chainName: "Ethereum"
+        })
+      })
+    ]);
+
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0].status).toBe("decoded");
+    expect(candidates[0].confidence).toBe(0.9);
+    expect(candidates[0].side).toBe("sell");
+    expect(candidates[0].tokenInAsset).toBe("ECHO");
+    expect(candidates[0].tokenInAddress).toBe(echoContract);
+    expect(candidates[0].tokenOutAsset).toBe("ETH");
+  });
 });

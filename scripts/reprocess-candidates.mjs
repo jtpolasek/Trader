@@ -6,6 +6,7 @@ import { summarizeCandidateReprocess } from "../src/lib/candidateReprocess.ts";
 const dbPath = process.argv.slice(2).find((arg) => !arg.startsWith("--")) ?? "data/paper-trader.db";
 const json = process.argv.includes("--json");
 const apply = process.argv.includes("--apply");
+const update = process.argv.includes("--update");
 const db = new DatabaseSync(dbPath, { readOnly: true });
 
 const activityRows = db
@@ -27,6 +28,7 @@ for (const row of activityRows) {
 const derivedCandidates = Array.from(activityByWallet.values()).flatMap((items) => deriveTradeCandidates(items));
 const report = summarizeCandidateReprocess(storedCandidates, derivedCandidates);
 if (apply) applyMissingCandidates(report.changes, dbPath);
+if (update) applyUpdatedCandidates(report.changes, dbPath);
 
 if (json) {
   console.log(JSON.stringify(report, null, 2));
@@ -82,6 +84,69 @@ function applyMissingCandidates(changes, writeDbPath) {
     throw error;
   } finally {
     writeDb.close();
+  }
+}
+
+function applyUpdatedCandidates(changes, writeDbPath) {
+  // Only update rows that were previously skipped and now have a better classification.
+  // Never touch copied, decoded, candidate, or failed rows — those may have been actioned.
+  const toUpdate = changes
+    .filter((change) => change.storedStatus === "skipped" && change.derivedStatus !== "skipped")
+    .map((change) => derivedCandidates.find((candidate) => candidateKey(candidate) === change.key))
+    .filter(Boolean);
+  if (!toUpdate.length) {
+    console.log("No skipped candidates to update.");
+    return;
+  }
+
+  db.close();
+  const writeDb = new DatabaseSync(writeDbPath);
+  const statement = writeDb.prepare(
+    `UPDATE trade_candidates
+     SET status = ?, confidence = ?, side = ?,
+         token_in_asset = ?, token_in_amount = ?, token_in_address = ?,
+         token_out_asset = ?, token_out_amount = ?, token_out_address = ?,
+         reason = ?, transfer_count = ?, source_timestamp = ?, updated_at = ?
+     WHERE LOWER(wallet_address) = LOWER(?) AND chain_id = ? AND LOWER(hash) = LOWER(?)`
+  );
+  const timestamp = new Date().toISOString();
+  let updated = 0;
+  writeDb.exec("BEGIN");
+  try {
+    for (const candidate of toUpdate) {
+      const result = statement.run(
+        candidate.status,
+        candidate.confidence,
+        candidate.side,
+        candidate.tokenInAsset,
+        candidate.tokenInAmount,
+        candidate.tokenInAddress,
+        candidate.tokenOutAsset,
+        candidate.tokenOutAmount,
+        candidate.tokenOutAddress,
+        candidate.reason,
+        candidate.transferCount,
+        candidate.sourceTimestamp,
+        timestamp,
+        candidate.walletAddress,
+        candidate.chainId,
+        candidate.hash
+      );
+      updated += Number(result.changes ?? 0);
+    }
+    writeDb.exec("COMMIT");
+  } catch (error) {
+    writeDb.exec("ROLLBACK");
+    throw error;
+  } finally {
+    writeDb.close();
+  }
+
+  const byStatus = {};
+  for (const c of toUpdate) byStatus[c.status] = (byStatus[c.status] ?? 0) + 1;
+  console.log(`\nUpdated existing skipped candidates: ${updated}`);
+  for (const [status, count] of Object.entries(byStatus)) {
+    console.log(`  skipped -> ${status}: ${count}`);
   }
 }
 
