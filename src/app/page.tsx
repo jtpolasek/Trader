@@ -16,6 +16,7 @@ import {
   Save,
   Target,
   Trash2,
+  TrendingUp,
   Upload,
   WalletCards
 } from "lucide-react";
@@ -163,6 +164,7 @@ export default function Home() {
   const [positionPrices, setPositionPrices] = useState<Record<string, number>>({});
   const [pricesFetchedAt, setPricesFetchedAt] = useState<number | null>(null);
   const [isPricesStale, setIsPricesStale] = useState(false);
+  const [autoRefreshInterval, setAutoRefreshInterval] = useState(0);
   const [lossOfferTokenAddress, setLossOfferTokenAddress] = useState("");
   const [activityContext, setActivityContext] = useState<{
     label: string;
@@ -176,6 +178,7 @@ export default function Home() {
   const [ledgerOk, setLedgerOk] = useState<{ ok: boolean; count: number } | null>(null);
   const [paperArchives, setPaperArchives] = useState<PaperArchiveSummary[]>([]);
   const [selectedArchiveId, setSelectedArchiveId] = useState("");
+  const fetchPricesRef = useRef<() => void>(() => {});
 
   const refresh = async () => {
     const response = await fetch("/api/portfolio", { cache: "no-store" });
@@ -232,6 +235,14 @@ export default function Home() {
     return () => clearInterval(interval);
   }, [pricesFetchedAt]);
 
+  useEffect(() => { fetchPricesRef.current = fetchPositionPrices; });
+
+  useEffect(() => {
+    if (!autoRefreshInterval) return;
+    const id = setInterval(() => fetchPricesRef.current(), autoRefreshInterval * 1000);
+    return () => clearInterval(id);
+  }, [autoRefreshInterval]);
+
   const selectedPosition = useMemo(
     () =>
       data?.positions.find(
@@ -240,6 +251,20 @@ export default function Home() {
     [data?.positions, tradeForm.tokenAddress]
   );
   const candidateStats = useMemo(() => getCandidateStats(candidates), [candidates]);
+
+  const totalUnrealizedPnlUsd = useMemo(() => {
+    if (!data?.positions.length || !Object.keys(positionPrices).length) return null;
+    let total = 0;
+    let priced = 0;
+    for (const pos of data.positions) {
+      const price = positionPrices[pos.tokenAddress];
+      if (price !== undefined) {
+        total += (price - pos.averageEntryUsd) * pos.quantity;
+        priced++;
+      }
+    }
+    return priced > 0 ? total : null;
+  }, [data?.positions, positionPrices]);
 
   async function submitWallet(event: FormEvent) {
     event.preventDefault();
@@ -965,6 +990,12 @@ export default function Home() {
         <Metric icon={<Target size={20} />} label="Equity basis" value={formatUsd(stats?.equityUsd ?? 0)} />
         <Metric icon={<Activity size={20} />} label="Realized PnL" value={formatUsd(portfolio?.realizedPnlUsd ?? 0)} />
         <Metric icon={<History size={20} />} label="Fees paid" value={formatUsd(stats?.totalFeesUsd ?? 0)} />
+        <Metric
+          icon={<TrendingUp size={20} />}
+          label="Unrealized P&L"
+          value={totalUnrealizedPnlUsd !== null ? formatUsd(totalUnrealizedPnlUsd) : "—"}
+          valueClassName={totalUnrealizedPnlUsd !== null ? (totalUnrealizedPnlUsd >= 0 ? "good" : "bad") : ""}
+        />
       </section>
 
       <section className="section grid dashboard-grid trust-strip">
@@ -1382,6 +1413,17 @@ export default function Home() {
             <div className="row">
               <h2>Positions</h2>
               <span className="pill">{data?.positions.length ?? 0} open</span>
+              <select
+                value={autoRefreshInterval}
+                onChange={(e) => setAutoRefreshInterval(Number(e.target.value))}
+                disabled={!data?.positions.length}
+                title="Auto-refresh interval for position prices"
+              >
+                <option value={0}>Manual</option>
+                <option value={60}>1 min</option>
+                <option value={120}>2 min</option>
+                <option value={300}>5 min</option>
+              </select>
               <button
                 className="button secondary"
                 onClick={() => fetchPositionPrices()}
@@ -1608,12 +1650,14 @@ function Metric({
   icon,
   label,
   value,
-  className = ""
+  className = "",
+  valueClassName = ""
 }: {
   icon: React.ReactNode;
   label: string;
   value: string;
   className?: string;
+  valueClassName?: string;
 }) {
   return (
     <div className={`metric ${className}`.trim()}>
@@ -1621,7 +1665,7 @@ function Metric({
         {label}
         {icon}
       </span>
-      <strong>{value}</strong>
+      <strong className={valueClassName || undefined}>{value}</strong>
     </div>
   );
 }
