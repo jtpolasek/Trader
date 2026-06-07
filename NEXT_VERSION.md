@@ -2,6 +2,17 @@
 
 ## Latest Session Notes
 
+Just shipped on `main`: dashboard trust signals quick wins.
+
+- `feat: surface total unrealized P&L in top metrics row + auto-refresh interval selector` (commits `06fbbe5`, `6a6ab96`):
+  - `Metric` component gains an optional `valueClassName` prop applied to `<strong>` for colored values.
+  - `totalUnrealizedPnlUsd` useMemo aggregates `positionPrices` React state over all open positions; returns `null` until prices are fetched (or none priced), `number` otherwise. Formula: `Σ (currentPrice − averageEntryUsd) × quantity`.
+  - 5th Metric cell "Unrealized P&L" added to the top metrics row with `TrendingUp` icon; shows `—` until first fetch, then a green (`.good`) or red (`.bad`) USD value.
+  - `autoRefreshInterval` state (default 0 = Manual) + `fetchPricesRef` stable ref pattern: a no-dep-array effect keeps the ref pointing at the latest `fetchPositionPrices` closure; a second effect keyed on `autoRefreshInterval` registers/clears `setInterval`.
+  - `<select>` (Manual / 1 min / 2 min / 5 min) added to the Positions panel header, left of the existing "Refresh prices" button; disabled when no positions.
+  - Bug fix: `.good`/`.bad` only existed as `.pill.good`/`.pill.bad`; added standalone `.good { color: var(--good) }` and `.bad { color: var(--danger) }` utility rules to `globals.css`.
+- Verification: `npx tsc --noEmit` clean, `npm test` 16 files / 149 tests pass.
+
 Just shipped on `main`: three wallet parser hardening slices for Build Next #2.
 
 - `fix: hydrate candidate amounts from raw payloads`: stored Alchemy rows with `value: 0` can now
@@ -142,8 +153,7 @@ Latest verification after the import/restore work:
 
 ## Resume Here Tomorrow
 
-State of `main`: clean and pushed. Three wallet parser hardening slices for Build Next #2 are done,
-plus a fixture slice locking in Base multi-router sell behavior.
+State of `main`: clean. Latest commits: `feat: surface total unrealized P&L in top metrics row + auto-refresh interval selector` + `fix: add standalone .good and .bad color utility classes`. Dashboard trust signals quick wins (Build Next #5 follow-ons) are complete.
 
 Just shipped on `main`: OCEAN decoded sell and CALI missing-address candidate fixtures. Two new
 fixture groups lock in the remaining Ethereum drift shapes: OCEAN erc20-out + internal-ETH-in
@@ -359,8 +369,8 @@ Do not rely on 0x Trade Analytics for arbitrary GMGN wallets. It only returns tr
    - DONE: Live unrealized P&L on open positions. "Refresh prices" button fetches spot prices via `/api/prices`, shows Current value and Unrealized P&L per position card, with a 2-minute stale warning.
    - DONE: Store `chainId` on tokens/trades/ledger-derived positions so `/api/prices` queries the correct chain per position instead of defaulting to Base for all.
    - Follow-on: if same-address tokens across chains become a real case, migrate token/trade identity from address-only to `(chainId, address)` composite keys.
-   - Follow-on: surface unrealized P&L in the top-level dashboard metrics row (total open gain/loss).
-   - Follow-on: auto-refresh prices on an opt-in interval instead of manual button only.
+   - DONE: Surface unrealized P&L in the top-level dashboard metrics row (total open gain/loss). `totalUnrealizedPnlUsd` useMemo + 5th Metric cell with green/red coloring.
+   - DONE: Auto-refresh prices on an opt-in interval. `autoRefreshInterval` state + `fetchPricesRef` stable ref + interval `<select>` (Manual / 1 min / 2 min / 5 min) in Positions panel header.
    - Follow-on: wallet performance scoring — score each watched wallet by copy-trade outcomes (win rate, realized PnL, fee drag) so the watchlist shows who is worth copying.
    - Follow-on: candidate list filtering and pagination — sort/filter by trust/side/status and page through all candidates instead of the current hard cap of 5.
    - Continue refining fee breakdown details as more execution costs are modeled.
