@@ -8,5 +8,6 @@ coverage
 data/*.db
 data/*.db-*
 npm-debug.log*
+.superpowers/
 server*.log
 tsconfig.tsbuildinfo
