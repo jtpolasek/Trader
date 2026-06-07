@@ -324,7 +324,7 @@ textarea {
 .tab-row {
   display: flex;
   gap: 0;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--line);
   margin-bottom: 12px;
 }
 
@@ -339,13 +339,13 @@ textarea {
 }
 
 .tab-button.active {
-  border-bottom-color: var(--accent, #58a6ff);
-  color: var(--text);
+  border-bottom-color: var(--accent);
+  color: var(--foreground);
   font-weight: 600;
 }
 
 .tab-button:hover:not(.active) {
-  color: var(--text);
+  color: var(--foreground);
 }
 
 .status-strip {
