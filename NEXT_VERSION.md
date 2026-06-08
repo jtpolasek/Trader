@@ -2,6 +2,14 @@
 
 ## Latest Session Notes
 
+Follow-up shipped on local `main` (not pushed yet): wallet activity now uses one tab row again.
+
+- Wallet-activity tab cleanup in `src/app/page.tsx`:
+  - Removed the duplicate raw-activity tab strip that was rendering above the existing candidate tabs.
+  - Lifted the candidate tab state to the parent Wallet activity panel so the single `Actionable / Review / All` row now drives both the candidate list and the raw activity filter.
+  - Guarded the no-candidate case so fetched raw activity still shows when there are no candidate tabs available yet.
+- Verification: `npm test` passes (16 files / 150 tests).
+
 Just shipped on local `main` (not pushed yet): quote guardrails + actionable wallet activity default + GMGN position links.
 
 - Quote-preview guardrails in `src/lib/external.ts`, `src/lib/external.test.ts`, and `src/app/page.tsx`:
