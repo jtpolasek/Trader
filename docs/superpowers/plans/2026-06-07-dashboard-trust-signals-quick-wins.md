@@ -1,6 +1,6 @@
 # Dashboard Trust Signals Quick Wins Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Surface total unrealized P&L in the top metrics row and add an opt-in auto-refresh price interval to the Positions panel.
 
@@ -25,7 +25,7 @@
 
 The `Metric` component currently renders `<strong>{value}</strong>` with no CSS class. We need to color the unrealized P&L green or red. Add an optional `valueClassName` prop applied to `<strong>`.
 
-- [ ] **Step 1: Update the `Metric` function at the bottom of `src/app/page.tsx`**
+- [x] **Step 1: Update the `Metric` function at the bottom of `src/app/page.tsx`**
 
 Find this block (around line 1607):
 
@@ -81,7 +81,7 @@ function Metric({
 }
 ```
 
-- [ ] **Step 2: Verify TypeScript compiles**
+- [x] **Step 2: Verify TypeScript compiles**
 
 ```bash
 npx tsc --noEmit
@@ -89,7 +89,7 @@ npx tsc --noEmit
 
 Expected: no errors.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add src/app/page.tsx
@@ -104,7 +104,7 @@ git commit -m "feat: add valueClassName prop to Metric component"
 - Modify: `src/app/page.tsx:3-21` (lucide import)
 - Modify: `src/app/page.tsx:242` (after last useMemo)
 
-- [ ] **Step 1: Add `TrendingUp` to the lucide-react import block**
+- [x] **Step 1: Add `TrendingUp` to the lucide-react import block**
 
 Find the import block at lines 3–21:
 
@@ -155,7 +155,7 @@ import {
 } from "lucide-react";
 ```
 
-- [ ] **Step 2: Add `totalUnrealizedPnlUsd` useMemo after the existing useMemos**
+- [x] **Step 2: Add `totalUnrealizedPnlUsd` useMemo after the existing useMemos**
 
 Find this line (around line 242):
 
@@ -183,7 +183,7 @@ Add immediately after it:
 
 **What this does:** Returns `null` when `positionPrices` is empty (no prices fetched yet). Otherwise sums `(currentPrice - averageEntryUsd) * quantity` for every position that has a known price. Returns `null` rather than `0` if no positions were matched (handles the edge case where positions exist but none have prices yet).
 
-- [ ] **Step 3: Verify TypeScript compiles**
+- [x] **Step 3: Verify TypeScript compiles**
 
 ```bash
 npx tsc --noEmit
@@ -191,7 +191,7 @@ npx tsc --noEmit
 
 Expected: no errors.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 ```bash
 npm test
@@ -199,7 +199,7 @@ npm test
 
 Expected: all tests pass (no logic under test changed).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/app/page.tsx
@@ -213,7 +213,7 @@ git commit -m "feat: compute total unrealized P&L from position prices"
 **Files:**
 - Modify: `src/app/page.tsx:963-968` (main metrics section)
 
-- [ ] **Step 1: Add the 5th Metric cell to the main metrics `<section>`**
+- [x] **Step 1: Add the 5th Metric cell to the main metrics `<section>`**
 
 Find the main metrics section (around line 963):
 
@@ -243,7 +243,7 @@ Replace with:
       </section>
 ```
 
-- [ ] **Step 2: Verify TypeScript compiles**
+- [x] **Step 2: Verify TypeScript compiles**
 
 ```bash
 npx tsc --noEmit
@@ -251,7 +251,7 @@ npx tsc --noEmit
 
 Expected: no errors.
 
-- [ ] **Step 3: Run tests**
+- [x] **Step 3: Run tests**
 
 ```bash
 npm test
@@ -259,7 +259,7 @@ npm test
 
 Expected: all tests pass.
 
-- [ ] **Step 4: Start the dev server and visually verify the metric**
+- [x] **Step 4: Start the dev server and visually verify the metric**
 
 ```bash
 npm run dev
@@ -270,7 +270,7 @@ Open `http://localhost:3000`. Verify:
 - After clicking "Refresh prices" in the Positions panel, the cell updates to a green (gain) or red (loss) USD value.
 - If there are no open positions, the cell stays `—` even after a price fetch attempt.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/app/page.tsx
@@ -287,7 +287,7 @@ git commit -m "feat: surface total unrealized P&L in top metrics row"
 
 `fetchPositionPrices` is an async function defined inside the component that closes over `data?.positions` and other state. If we pass it directly to `setInterval`, the interval will call a stale version of the function captured at registration time. The fix: a `useRef` that is kept current after every render via a side-effect-free `useEffect`. The interval always calls `fetchPricesRef.current()`, which is always the latest version.
 
-- [ ] **Step 1: Add `autoRefreshInterval` state after `isPricesStale` (line 165)**
+- [x] **Step 1: Add `autoRefreshInterval` state after `isPricesStale` (line 165)**
 
 Find:
 
@@ -301,7 +301,7 @@ Add immediately after:
   const [autoRefreshInterval, setAutoRefreshInterval] = useState(0);
 ```
 
-- [ ] **Step 2: Add `fetchPricesRef` declaration after `selectedArchiveId` state (line 178)**
+- [x] **Step 2: Add `fetchPricesRef` declaration after `selectedArchiveId` state (line 178)**
 
 Find:
 
@@ -315,7 +315,7 @@ Add immediately after (still inside the component, before the first `const refre
   const fetchPricesRef = useRef<() => void>(() => {});
 ```
 
-- [ ] **Step 3: Add the two new useEffects after the stale-price useEffect (line 233)**
+- [x] **Step 3: Add the two new useEffects after the stale-price useEffect (line 233)**
 
 Find the end of the stale-price useEffect:
 
@@ -343,7 +343,7 @@ Add immediately after:
 
 **Why two separate effects:** The first has no dependency array — it runs after every render to keep `fetchPricesRef.current` pointing at the latest `fetchPositionPrices` closure. The second is keyed only on `autoRefreshInterval` — it registers/clears the timer when the interval changes.
 
-- [ ] **Step 4: Verify TypeScript compiles**
+- [x] **Step 4: Verify TypeScript compiles**
 
 ```bash
 npx tsc --noEmit
@@ -351,7 +351,7 @@ npx tsc --noEmit
 
 Expected: no errors.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/app/page.tsx
@@ -365,7 +365,7 @@ git commit -m "feat: add auto-refresh interval state and stable fetchPrices ref"
 **Files:**
 - Modify: `src/app/page.tsx:1382-1394` (Positions panel header)
 
-- [ ] **Step 1: Add the `<select>` to the Positions panel header row**
+- [x] **Step 1: Add the `<select>` to the Positions panel header row**
 
 Find the Positions panel header (around line 1382):
 
@@ -414,7 +414,7 @@ Replace with:
             </div>
 ```
 
-- [ ] **Step 2: Verify TypeScript compiles**
+- [x] **Step 2: Verify TypeScript compiles**
 
 ```bash
 npx tsc --noEmit
@@ -422,7 +422,7 @@ npx tsc --noEmit
 
 Expected: no errors.
 
-- [ ] **Step 3: Run tests**
+- [x] **Step 3: Run tests**
 
 ```bash
 npm test
@@ -430,7 +430,7 @@ npm test
 
 Expected: all tests pass.
 
-- [ ] **Step 4: Verify the build passes**
+- [x] **Step 4: Verify the build passes**
 
 ```bash
 npm run build
@@ -438,7 +438,7 @@ npm run build
 
 Expected: build succeeds with no TypeScript or Next.js errors.
 
-- [ ] **Step 5: Start the dev server and verify the full feature end-to-end**
+- [x] **Step 5: Start the dev server and verify the full feature end-to-end**
 
 ```bash
 npm run dev
@@ -455,7 +455,7 @@ Open `http://localhost:3000`. Verify:
 7. **Stale warning**: set to "Manual", wait 2+ minutes after a fetch — the stale warning still fires.
 8. **Unrealized P&L `—` on load**: reload the page — the top metrics row shows `—` for Unrealized P&L. Select "1 min"; after the first auto-fetch fires, the cell populates with a colored value.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/app/page.tsx
