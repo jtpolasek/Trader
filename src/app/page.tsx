@@ -93,6 +93,7 @@ type QuoteDebugSnapshot = {
   valuedFeeUsd?: number;
   valuedFeeTokens?: string[];
   stillUnpricedFees?: { type?: string; token?: string; amount?: string }[];
+  warnings?: string[];
   rawQuote?: unknown;
 };
 
@@ -140,6 +141,8 @@ type TradeSignal = {
   title: string;
 };
 
+type ActivityTab = "actionable" | "all";
+
 const initialTrade = {
   side: "buy" as TradeSide,
   chainId: "8453",
@@ -174,6 +177,7 @@ export default function Home() {
     fetched: number;
     warnings: string[];
   } | null>(null);
+  const [activeActivityTab, setActiveActivityTab] = useState<ActivityTab>("actionable");
   const [extraVisibleActivity, setExtraVisibleActivity] = useState(0);
   const [busy, setBusy] = useState("");
   const [message, setMessage] = useState("");
@@ -232,6 +236,10 @@ export default function Home() {
   }, [activity]);
 
   useEffect(() => {
+    setExtraVisibleActivity(0);
+  }, [activeActivityTab]);
+
+  useEffect(() => {
     if (!fetchedAt) return;
     const interval = setInterval(() => {
       if (isQuoteStale(fetchedAt, Date.now(), 120_000)) setIsStale(true);
@@ -284,13 +292,39 @@ export default function Home() {
     () => activity.filter((item) => localDateKey(new Date(item.timestamp)) === todayKey),
     [activity, todayKey]
   );
+  const actionableActivityHashes = useMemo(
+    () =>
+      new Set(
+        candidates
+          .filter((candidate) => candidateTab(candidate) === "actionable")
+          .map((candidate) => candidate.hash.toLowerCase())
+      ),
+    [candidates]
+  );
+  const actionableActivity = useMemo(
+    () => activity.filter((item) => actionableActivityHashes.has(item.hash.toLowerCase())),
+    [activity, actionableActivityHashes]
+  );
+  const filteredActivity = useMemo(
+    () => (activeActivityTab === "all" ? activity : actionableActivity),
+    [activity, actionableActivity, activeActivityTab]
+  );
+  const actionableTodayActivityCount = useMemo(
+    () => actionableActivity.filter((item) => localDateKey(new Date(item.timestamp)) === todayKey).length,
+    [actionableActivity, todayKey]
+  );
+  const todayVisibleActivityCount = activeActivityTab === "all" ? todayActivity.length : actionableTodayActivityCount;
+  const filteredTodayActivity = useMemo(
+    () => filteredActivity.filter((item) => localDateKey(new Date(item.timestamp)) === todayKey),
+    [filteredActivity, todayKey]
+  );
   const olderActivity = useMemo(
-    () => activity.filter((item) => localDateKey(new Date(item.timestamp)) !== todayKey),
-    [activity, todayKey]
+    () => filteredActivity.filter((item) => localDateKey(new Date(item.timestamp)) !== todayKey),
+    [filteredActivity, todayKey]
   );
   const visibleActivity = useMemo(
-    () => [...todayActivity, ...olderActivity.slice(0, extraVisibleActivity)],
-    [todayActivity, olderActivity, extraVisibleActivity]
+    () => [...filteredTodayActivity, ...olderActivity.slice(0, extraVisibleActivity)],
+    [filteredTodayActivity, olderActivity, extraVisibleActivity]
   );
   const remainingOlderActivity = Math.max(0, olderActivity.length - extraVisibleActivity);
   const todayTrades = useMemo(
@@ -1255,7 +1289,10 @@ export default function Home() {
                   <Mini label="Notional" value={formatUsd(preview.notionalUsd)} />
                   <Mini label="Gas" value={formatUsd(preview.gasUsd)} />
                   <Mini label="0x fee" value={formatUsd(preview.dexFeeUsd)} />
-                  <Mini label="Price impact + pool fees" value={formatUsd(getImplicitSwapCostUsd(preview.quoteSnapshot))} />
+                  <Mini
+                    label="Price impact + pool fees"
+                    value={formatNullableUsd(getImplicitSwapCostUsd(preview.quoteSnapshot))}
+                  />
                   <Mini
                     label={preview.side === "buy" ? "All-in cost" : "Net proceeds"}
                     value={formatUsd(preview.side === "buy" ? preview.totalCostUsd : preview.sellProceedsUsd)}
@@ -1553,7 +1590,17 @@ export default function Home() {
                         <h3>
                           {position.symbol} <span className="subtle">{position.name}</span>
                         </h3>
-                        <p className="mono subtle">{position.tokenAddress}</p>
+                        <p>
+                          <a
+                            className="hash-link mono"
+                            href={gmgnTokenUrl(position.chainId, position.tokenAddress)}
+                            target="_blank"
+                            rel="noreferrer"
+                            title="Open token on GMGN"
+                          >
+                            {position.tokenAddress}
+                          </a>
+                        </p>
                       </div>
                       <div className="row compact">
                         <span className={position.realizedPnlUsd >= 0 ? "pill good" : "pill bad"}>
@@ -1615,7 +1662,7 @@ export default function Home() {
             <div className="row">
               <h2>Wallet activity</h2>
               <span className="pill">{candidates.length} candidates</span>
-              <span className="pill">{todayActivity.length} today</span>
+              <span className="pill">{todayVisibleActivityCount} today</span>
             </div>
             <CandidateStatusSummary stats={candidateStats} />
             {activityContext ? (
@@ -1630,6 +1677,21 @@ export default function Home() {
                 ))}
               </div>
             ) : null}
+            <div className="tab-row">
+              {(["actionable", "all"] as ActivityTab[]).map((tab) => (
+                <button
+                  key={tab}
+                  type="button"
+                  className={`tab-button${activeActivityTab === tab ? " active" : ""}`}
+                  onClick={() => setActiveActivityTab(tab)}
+                >
+                  {{ actionable: "Actionable", all: "All activity" }[tab]}{" "}
+                  <span className="pill">
+                    {tab === "actionable" ? actionableActivity.length : activity.length}
+                  </span>
+                </button>
+              ))}
+            </div>
             {candidates.length ? (
               <CandidateList
                 candidates={candidates}
@@ -1665,7 +1727,13 @@ export default function Home() {
                 </p>
               ) : null}
               {activity.length > 0 && !visibleActivity.length ? (
-                <p className="subtle">No transactions yet today. Use show more to expand older wallet activity.</p>
+                <p className="subtle">
+                  {activeActivityTab === "actionable" && !filteredActivity.length
+                    ? "No actionable wallet activity is visible right now. Open All activity to inspect the rest."
+                    : activeActivityTab === "actionable"
+                    ? "No actionable transactions yet today. Use show more to expand older wallet activity."
+                    : "No transactions yet today. Use show more to expand older wallet activity."}
+                </p>
               ) : null}
             </div>
             {remainingOlderActivity > 0 ? (
@@ -1830,15 +1898,16 @@ function CandidateAttentionStrip({ summary }: { summary?: CandidateAttention }) 
 
 function FeeBreakdown({ trade }: { trade: Trade }) {
   const snapshot = parseSnapshot(trade.quoteSnapshot);
-  const implicitSwapCostUsd = getImplicitSwapCostUsd(snapshot) || legacySlippageBufferUsd(trade, snapshot);
-  const totalCosts = trade.gasUsd + trade.dexFeeUsd + implicitSwapCostUsd;
+  const implicitSwapCostUsd = getImplicitSwapCostUsd(snapshot);
+  const displayedSwapCostUsd = implicitSwapCostUsd ?? legacySlippageBufferUsd(trade, snapshot);
+  const totalCosts = trade.gasUsd + trade.dexFeeUsd + displayedSwapCostUsd;
   const valuedFeeUsd = getValuedFeeUsd(snapshot);
   return (
     <div className="fee-stack">
       <strong>{formatUsd(totalCosts)}</strong>
       <span>Gas {formatUsd(trade.gasUsd)}</span>
       <span>0x {formatUsd(trade.dexFeeUsd)}</span>
-      <span>{isLegacySlippageTrade(snapshot) ? "Slip buffer" : "Swap"} {formatUsd(implicitSwapCostUsd)}</span>
+      <span>{isLegacySlippageTrade(snapshot) ? "Slip buffer" : "Swap"} {formatNullableUsd(displayedSwapCostUsd)}</span>
       {valuedFeeUsd > 0 ? (
         <span className="subtle" title="Portion of the 0x fee that 0x reported in a non-USDC token and the simulator valued into USD.">
           incl. {formatUsd(valuedFeeUsd)} valued
@@ -2171,11 +2240,17 @@ function parseSnapshot(value: string): Record<string, unknown> {
 }
 
 function getSnapshotWarnings(snapshot: Record<string, unknown>) {
+  const previewWarnings = Array.isArray((snapshot as QuoteDebugSnapshot).warnings)
+    ? (snapshot as QuoteDebugSnapshot).warnings?.filter((warning): warning is string => typeof warning === "string")
+    : [];
   const normalizedQuote = snapshot.normalizedQuote;
-  if (!normalizedQuote || typeof normalizedQuote !== "object" || Array.isArray(normalizedQuote)) return [];
+  if (!normalizedQuote || typeof normalizedQuote !== "object" || Array.isArray(normalizedQuote)) return previewWarnings;
 
   const warnings = (normalizedQuote as Record<string, unknown>).warnings;
-  return Array.isArray(warnings) ? warnings.filter((warning): warning is string => typeof warning === "string") : [];
+  const quoteWarnings = Array.isArray(warnings)
+    ? warnings.filter((warning): warning is string => typeof warning === "string")
+    : [];
+  return Array.from(new Set([...quoteWarnings, ...previewWarnings]));
 }
 
 function getValuedFeeUsd(snapshot: Record<string, unknown>) {
@@ -2191,11 +2266,12 @@ function getStillUnpricedFeeTokens(snapshot: Record<string, unknown>) {
 
 function getImplicitSwapCostUsd(snapshot: Record<string, unknown>) {
   const value = (snapshot as QuoteDebugSnapshot).assumptions?.implicitSwapCostUsd;
-  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 function isLegacySlippageTrade(snapshot: Record<string, unknown>) {
-  return (snapshot as QuoteDebugSnapshot).assumptions?.implicitSwapCostUsd === undefined;
+  const debug = snapshot as QuoteDebugSnapshot;
+  return debug.quoteKind !== "price-preview" && debug.provider !== "manual";
 }
 
 function legacySlippageBufferUsd(trade: Trade, snapshot: Record<string, unknown>) {
@@ -2220,6 +2296,10 @@ function tradeReturnClassName(trade: Trade) {
   if (value > 0) return "good";
   if (value < 0) return "bad";
   return "";
+}
+
+function formatNullableUsd(value: number | null | undefined) {
+  return typeof value === "number" && Number.isFinite(value) ? formatUsd(value) : "Unavailable";
 }
 
 function formatPercent(value: number) {
@@ -2391,6 +2471,12 @@ function explorerTxUrl(chainId: number, hash: string) {
   if (chainId === 1) return `https://etherscan.io/tx/${hash}`;
   if (chainId === 8453) return `https://basescan.org/tx/${hash}`;
   return "";
+}
+
+function gmgnTokenUrl(chainId: number, tokenAddress: string) {
+  if (!tokenAddress) return "";
+  if (chainId === 1) return `https://gmgn.ai/eth/token/${tokenAddress}`;
+  return `https://gmgn.ai/base/token/${tokenAddress}`;
 }
 
 async function readJsonResponse<T>(response: Response, fallbackMessage: string): Promise<T> {

@@ -407,4 +407,33 @@ describe("buildQuotePreview unpriced fee valuation", () => {
     expect(preview.dexFeeUsd).toBeCloseTo(2, 6);
     expect(preview.warnings.some((w) => w.includes("could not value in USD"))).toBe(false);
   });
+
+  it("suppresses impossible swap-cost estimates when the small reference quote is unreliable", async () => {
+    mockSwapThenNative(
+      {
+        buyAmount: "150000000",
+        sellAmount: "1000000000000000000000",
+        gas: "210000",
+        gasPrice: "30000000000"
+      },
+      { buyAmount: "1", sellAmount: "10000000" }
+    );
+
+    const preview = await buildQuotePreview({
+      side: "sell",
+      token,
+      tokenQuantity: 1000,
+      slippageBps: 100,
+      gasBufferBps: 0
+    });
+
+    expect(preview.warnings).toContain(
+      "The small reference quote looked unreliable compared with this trade quote, so price impact + pool fees could not be estimated."
+    );
+    expect((preview.quoteSnapshot as { assumptions?: { implicitSwapCostUsd?: number; spotTokenPriceUsd?: number } }).assumptions?.implicitSwapCostUsd).toBeUndefined();
+    expect((preview.quoteSnapshot as { assumptions?: { implicitSwapCostUsd?: number; spotTokenPriceUsd?: number } }).assumptions?.spotTokenPriceUsd).toBeUndefined();
+    expect((preview.quoteSnapshot as { warnings?: string[] }).warnings).toContain(
+      "The small reference quote looked unreliable compared with this trade quote, so price impact + pool fees could not be estimated."
+    );
+  });
 });

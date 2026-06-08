@@ -2,6 +2,21 @@
 
 ## Latest Session Notes
 
+Just shipped on local `main` (not pushed yet): quote guardrails + actionable wallet activity default + GMGN position links.
+
+- Quote-preview guardrails in `src/lib/external.ts`, `src/lib/external.test.ts`, and `src/app/page.tsx`:
+  - The inferred `Price impact + pool fees` estimate is now suppressed when the small `$10` reference quote is wildly inconsistent with the main trade quote.
+  - In that case the preview/trade snapshot records a warning that the reference quote was unreliable, and the UI shows `Unavailable` instead of a fake dollar amount.
+  - Trade history now preserves preview-level warnings from the stored quote snapshot, so that reliability warning survives after execution.
+- Wallet-activity focus in `src/app/page.tsx`:
+  - Raw wallet activity now defaults to an `Actionable` tab that only shows transfers whose hashes map to candidates the existing trust model marks actionable.
+  - A separate `All activity` tab still exposes the full cached transfer feed on demand.
+  - The wallet-activity counts and empty states now reflect the active filter instead of implying every cached transfer is actionable.
+- Position-link polish in `src/app/page.tsx`:
+  - Open-position contract addresses are now clickable external links to GMGN token pages.
+  - Base positions open `https://gmgn.ai/base/token/[tokenAddress]`; Ethereum positions use the matching `eth` path.
+- Verification: `npm test -- external.test.ts` passes (18 tests) and `npm test` passes (16 files / 150 tests).
+
 Just shipped on local `main` (not pushed yet): fast position exits + today-first dashboard lists + fee-model correction for new trades.
 
 - Dashboard flow polish in `src/app/page.tsx`:

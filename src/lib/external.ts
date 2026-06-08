@@ -42,6 +42,7 @@ type SwapQuote = {
 };
 
 const REFERENCE_SPOT_USD = 10;
+const MAX_REFERENCE_PRICE_DEVIATION_MULTIPLE = 50;
 
 export async function resolveTokenFromAlchemy(address: string, chainId = ETH_CHAIN_ID): Promise<Token> {
   const tokenAddress = normalizeAddress(address);
@@ -172,12 +173,18 @@ export async function buildQuotePreview(input: {
   const tokenQuantity = isBuy ? buyQuantity : sellQuantity;
   const tokenNotionalUsd = isBuy ? input.usdAmount ?? 0 : sellProceeds;
   const derivedTokenPriceUsd = tokenQuantity > 0 ? tokenNotionalUsd / tokenQuantity : 0;
-  const implicitSwapCostUsd = estimateImplicitSwapCostUsd({
-    side: input.side,
-    spotTokenPriceUsd,
-    quantity: tokenQuantity,
-    notionalUsd: tokenNotionalUsd
+  const referencePriceReliable = isReferencePriceReliable({
+    referenceTokenPriceUsd: spotTokenPriceUsd,
+    quotedTokenPriceUsd: derivedTokenPriceUsd
   });
+  const implicitSwapCostUsd = referencePriceReliable
+    ? estimateImplicitSwapCostUsd({
+        side: input.side,
+        spotTokenPriceUsd,
+        quantity: tokenQuantity,
+        notionalUsd: tokenNotionalUsd
+      })
+    : undefined;
 
   const anchors: FeePriceAnchor[] = [
     { address: chainTokens.weth.address, usdPrice: ethUsd, decimals: chainTokens.weth.decimals },
@@ -188,6 +195,11 @@ export async function buildQuotePreview(input: {
 
   const dexFeeUsd = quote.dexFeeUsd + valuedUsd;
   const warnings = [...quote.warnings];
+  if (!referencePriceReliable) {
+    warnings.push(
+      "The small reference quote looked unreliable compared with this trade quote, so price impact + pool fees could not be estimated."
+    );
+  }
   if (stillUnpriced.length) {
     const tokens = stillUnpriced.map((fee) => fee.token).join(", ");
     warnings.push(
@@ -212,12 +224,13 @@ export async function buildQuotePreview(input: {
       gasPriceWei: quote.gasPriceWei ?? 0,
       gasUsd: quote.gasUsd,
       dexFeeUsd,
-      spotTokenPriceUsd,
+      spotTokenPriceUsd: referencePriceReliable ? spotTokenPriceUsd : undefined,
       implicitSwapCostUsd
     },
     valuedFeeUsd: valuedUsd,
     valuedFeeTokens: pricedTokens,
     stillUnpricedFees: stillUnpriced,
+    warnings,
     normalizedQuote: withoutRawResponse(quote),
     rawQuote: quote.rawResponse
   };
@@ -293,6 +306,16 @@ function estimateImplicitSwapCostUsd(input: {
   }
 
   return Math.max(0, input.quantity * input.spotTokenPriceUsd - input.notionalUsd);
+}
+
+function isReferencePriceReliable(input: {
+  referenceTokenPriceUsd: number;
+  quotedTokenPriceUsd: number;
+}) {
+  if (!(input.referenceTokenPriceUsd > 0) || !(input.quotedTokenPriceUsd > 0)) return false;
+  const higher = Math.max(input.referenceTokenPriceUsd, input.quotedTokenPriceUsd);
+  const lower = Math.min(input.referenceTokenPriceUsd, input.quotedTokenPriceUsd);
+  return higher / lower <= MAX_REFERENCE_PRICE_DEVIATION_MULTIPLE;
 }
 
 export async function fetchWalletTransfers(walletAddress: string): Promise<{
