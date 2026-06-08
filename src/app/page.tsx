@@ -23,10 +23,12 @@ import {
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { candidateCopyTokenAddress, classifyCandidateTrust } from "@/lib/candidateTrust";
 import { isQuoteStale } from "@/lib/quoteAge";
-import { DEFAULT_COPY_SETTINGS, DEFAULT_GAS_BUFFER_BPS, DEFAULT_SLIPPAGE_BPS } from "@/lib/constants";
+import { DEFAULT_COPY_SETTINGS, DEFAULT_EXIT_RULES, DEFAULT_GAS_BUFFER_BPS, DEFAULT_SLIPPAGE_BPS } from "@/lib/constants";
 import { formatNumber, formatUsd, formatUsdPrice } from "@/lib/money";
 import type {
   CopySettings,
+  ExitFailure,
+  ExitRules,
   PortfolioAnalytics,
   Position,
   QuotePreview,
@@ -157,6 +159,8 @@ export default function Home() {
   const [data, setData] = useState<PortfolioPayload | null>(null);
   const [tradeForm, setTradeForm] = useState(initialTrade);
   const [copySettingsForm, setCopySettingsForm] = useState<CopySettingsForm>(initialCopySettingsForm);
+  const [exitRules, setExitRules] = useState<ExitRules>(DEFAULT_EXIT_RULES);
+  const [exitFailures, setExitFailures] = useState<ExitFailure[]>([]);
   const [walletForm, setWalletForm] = useState({ address: "", label: "", notes: "", gmgnUrl: "" });
   const [preview, setPreview] = useState<QuotePreview | null>(null);
   const [fetchedAt, setFetchedAt] = useState<number | null>(null);
@@ -217,6 +221,15 @@ export default function Home() {
     refreshPaperArchives().catch((err: unknown) =>
       setError(err instanceof Error ? err.message : "Could not load paper portfolio archives.")
     );
+    fetch("/api/settings/exit-rules")
+      .then((res) => res.ok ? res.json() : null)
+      .then((d: { exitRules: ExitRules; exitFailures: ExitFailure[] } | null) => {
+        if (d) {
+          setExitRules(d.exitRules);
+          setExitFailures(d.exitFailures ?? []);
+        }
+      })
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -1448,6 +1461,90 @@ export default function Home() {
 
           <div className="panel">
             <div className="row">
+              <h2>Auto-exit rules</h2>
+              <span className="pill">{exitRules.enabled ? "On" : "Off"}</span>
+            </div>
+            <form
+              className="stack"
+              onSubmit={async (e) => {
+                e.preventDefault();
+                const res = await fetch("/api/settings/exit-rules", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify(exitRules)
+                });
+                if (res.ok) {
+                  const updated = await res.json() as { exitRules: ExitRules };
+                  setExitRules(updated.exitRules);
+                }
+              }}
+            >
+              <div className="form-grid">
+                <div className="field">
+                  <label htmlFor="exitEnabled">Enabled</label>
+                  <input
+                    id="exitEnabled"
+                    type="checkbox"
+                    checked={exitRules.enabled}
+                    onChange={(e) => setExitRules({ ...exitRules, enabled: e.target.checked })}
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="takeProfitPct">Take profit %</label>
+                  <input
+                    id="takeProfitPct"
+                    type="number"
+                    min={0}
+                    placeholder="disabled"
+                    value={exitRules.takeProfitPct ?? ""}
+                    onChange={(e) => setExitRules({ ...exitRules, takeProfitPct: e.target.value === "" ? null : Number(e.target.value) })}
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="stopLossPct">Stop loss %</label>
+                  <input
+                    id="stopLossPct"
+                    type="number"
+                    min={0}
+                    placeholder="disabled"
+                    value={exitRules.stopLossPct ?? ""}
+                    onChange={(e) => setExitRules({ ...exitRules, stopLossPct: e.target.value === "" ? null : Number(e.target.value) })}
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="exitSizePct">Exit size %</label>
+                  <input
+                    id="exitSizePct"
+                    type="number"
+                    min={1}
+                    max={100}
+                    value={exitRules.exitSizePct}
+                    onChange={(e) => setExitRules({ ...exitRules, exitSizePct: Number(e.target.value) })}
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="checkIntervalSecs">Check interval</label>
+                  <select
+                    id="checkIntervalSecs"
+                    value={exitRules.checkIntervalSecs}
+                    onChange={(e) => setExitRules({ ...exitRules, checkIntervalSecs: Number(e.target.value) })}
+                  >
+                    <option value={30}>30 seconds</option>
+                    <option value={60}>1 minute</option>
+                    <option value={120}>2 minutes</option>
+                    <option value={300}>5 minutes</option>
+                    <option value={600}>10 minutes</option>
+                  </select>
+                </div>
+              </div>
+              <button className="button secondary" type="submit">
+                Save auto-exit rules
+              </button>
+            </form>
+          </div>
+
+          <div className="panel">
+            <div className="row">
               <h2>Watchlist</h2>
               <span className="pill">{data?.wallets.length ?? 0} wallets</span>
             </div>
@@ -1648,6 +1745,35 @@ export default function Home() {
                       />
                       <UnrealizedPnl value={unrealizedPnlUsd} />
                     </div>
+                    {(() => {
+                      const failure = exitFailures.find((f) => f.tokenAddress === position.tokenAddress);
+                      if (failure) {
+                        return (
+                          <div className="exit-failure-alert">
+                            <span className="bad">Auto-exit failed: {failure.reason}</span>
+                            {" "}
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                const res = await fetch(`/api/settings/exit-failures/${position.tokenAddress}`, { method: "DELETE" });
+                                if (res.ok) {
+                                  setExitFailures((prev) => prev.filter((f) => f.tokenAddress !== position.tokenAddress));
+                                }
+                              }}
+                            >
+                              Dismiss
+                            </button>
+                          </div>
+                        );
+                      }
+                      if (exitRules.enabled && (exitRules.takeProfitPct !== null || exitRules.stopLossPct !== null)) {
+                        const parts: string[] = [];
+                        if (exitRules.takeProfitPct !== null) parts.push(`TP +${exitRules.takeProfitPct}%`);
+                        if (exitRules.stopLossPct !== null) parts.push(`SL −${exitRules.stopLossPct}%`);
+                        return <div className="subtle">Watching: {parts.join(" / ")}</div>;
+                      }
+                      return null;
+                    })()}
                   </article>
                   );
                 })

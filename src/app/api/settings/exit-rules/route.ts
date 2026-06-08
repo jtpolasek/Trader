@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getExitRules, updateExitRules } from "@/lib/repositories";
+import { getExitFailures, getExitRules, updateExitRules } from "@/lib/repositories";
 
 const schema = z.object({
   enabled: z.boolean(),
@@ -17,7 +17,7 @@ const schema = z.object({
 });
 
 export async function GET() {
-  return NextResponse.json({ exitRules: getExitRules() });
+  return NextResponse.json({ exitRules: getExitRules(), exitFailures: getExitFailures() });
 }
 
 export async function POST(request: Request) {
