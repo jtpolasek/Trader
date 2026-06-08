@@ -9,8 +9,7 @@ export function checkExitTrigger(input: {
   if (input.averageEntryUsd <= 0) return null;
   const pnlPct = ((input.currentPriceUsd - input.averageEntryUsd) / input.averageEntryUsd) * 100;
   if (input.takeProfitPct !== null && pnlPct >= input.takeProfitPct) return "tp";
-  // Add small epsilon for stop loss to account for floating-point precision
-  if (input.stopLossPct !== null && pnlPct <= (-input.stopLossPct + 0.01)) return "sl";
+  if (input.stopLossPct !== null && pnlPct <= -input.stopLossPct) return "sl";
   return null;
 }
 

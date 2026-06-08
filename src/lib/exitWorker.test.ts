@@ -31,10 +31,10 @@ describe("checkExitTrigger", () => {
 
   it("returns sl when pnlPct meets stopLossPct exactly", () => {
     expect(checkExitTrigger({
-      currentPriceUsd: 0.8,
+      currentPriceUsd: 0.5,
       averageEntryUsd: 1.0,
       takeProfitPct: null,
-      stopLossPct: 20
+      stopLossPct: 50
     })).toBe("sl");
   });
 
