@@ -2216,6 +2216,23 @@ function getTradeSignals(trade: Trade): TradeSignal[] {
     });
   }
 
+  if (snapshot.autoExit === true) {
+    const trigger = snapshot.trigger;
+    if (trigger === "tp") {
+      signals.push({
+        label: "Auto-exit TP",
+        tone: "warn",
+        title: `Position was automatically sold at take-profit (+${snapshot.triggerPct ?? "?"}%).`
+      });
+    } else if (trigger === "sl") {
+      signals.push({
+        label: "Auto-exit SL",
+        tone: "bad",
+        title: `Position was automatically sold at stop-loss (${snapshot.triggerPct ?? "?"}%).`
+      });
+    }
+  }
+
   return signals;
 }
 
