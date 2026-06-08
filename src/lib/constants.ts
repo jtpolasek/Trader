@@ -1,3 +1,5 @@
+import type { ExitRules } from "./types";
+
 export const ETH_CHAIN_ID = 1;
 export const BASE_CHAIN_ID = 8453;
 
@@ -66,3 +68,11 @@ export const DEFAULT_COPY_SETTINGS = {
   allowlist: [] as string[],
   blocklist: [] as string[]
 } as const;
+
+export const DEFAULT_EXIT_RULES: ExitRules = {
+  enabled: false,
+  takeProfitPct: null,
+  stopLossPct: null,
+  exitSizePct: 100,
+  checkIntervalSecs: 60
+};

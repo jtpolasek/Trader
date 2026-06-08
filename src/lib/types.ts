@@ -135,6 +135,22 @@ export type CopySettings = {
   blocklist: string[];
 };
 
+export type ExitRules = {
+  enabled: boolean;
+  takeProfitPct: number | null;
+  stopLossPct: number | null;
+  exitSizePct: number;
+  checkIntervalSecs: number;
+};
+
+export type ExitFailure = {
+  tokenAddress: string;
+  chainId: number;
+  symbol: string;
+  reason: string;
+  failedAt: string;
+};
+
 export type TradeInput = Omit<Trade, "id" | "createdAt" | "symbol" | "chainId"> & { chainId?: number };
 
 export type TradeLedgerInput = Pick<
