@@ -141,8 +141,6 @@ type TradeSignal = {
   title: string;
 };
 
-type ActivityTab = "actionable" | "all";
-
 const initialTrade = {
   side: "buy" as TradeSide,
   chainId: "8453",
@@ -177,7 +175,7 @@ export default function Home() {
     fetched: number;
     warnings: string[];
   } | null>(null);
-  const [activeActivityTab, setActiveActivityTab] = useState<ActivityTab>("actionable");
+  const [activeCandidateTab, setActiveCandidateTab] = useState<CandidateTab>("actionable");
   const [extraVisibleActivity, setExtraVisibleActivity] = useState(0);
   const [busy, setBusy] = useState("");
   const [message, setMessage] = useState("");
@@ -237,7 +235,7 @@ export default function Home() {
 
   useEffect(() => {
     setExtraVisibleActivity(0);
-  }, [activeActivityTab]);
+  }, [activeCandidateTab]);
 
   useEffect(() => {
     if (!fetchedAt) return;
@@ -306,14 +304,15 @@ export default function Home() {
     [activity, actionableActivityHashes]
   );
   const filteredActivity = useMemo(
-    () => (activeActivityTab === "all" ? activity : actionableActivity),
-    [activity, actionableActivity, activeActivityTab]
+    () => (activeCandidateTab === "actionable" && candidates.length ? actionableActivity : activity),
+    [activity, actionableActivity, activeCandidateTab, candidates.length]
   );
   const actionableTodayActivityCount = useMemo(
     () => actionableActivity.filter((item) => localDateKey(new Date(item.timestamp)) === todayKey).length,
     [actionableActivity, todayKey]
   );
-  const todayVisibleActivityCount = activeActivityTab === "all" ? todayActivity.length : actionableTodayActivityCount;
+  const todayVisibleActivityCount =
+    activeCandidateTab === "actionable" && candidates.length ? actionableTodayActivityCount : todayActivity.length;
   const filteredTodayActivity = useMemo(
     () => filteredActivity.filter((item) => localDateKey(new Date(item.timestamp)) === todayKey),
     [filteredActivity, todayKey]
@@ -1677,27 +1676,14 @@ export default function Home() {
                 ))}
               </div>
             ) : null}
-            <div className="tab-row">
-              {(["actionable", "all"] as ActivityTab[]).map((tab) => (
-                <button
-                  key={tab}
-                  type="button"
-                  className={`tab-button${activeActivityTab === tab ? " active" : ""}`}
-                  onClick={() => setActiveActivityTab(tab)}
-                >
-                  {{ actionable: "Actionable", all: "All activity" }[tab]}{" "}
-                  <span className="pill">
-                    {tab === "actionable" ? actionableActivity.length : activity.length}
-                  </span>
-                </button>
-              ))}
-            </div>
             {candidates.length ? (
               <CandidateList
                 candidates={candidates}
                 copyResults={copyResults}
                 busy={busy}
                 copyCandidate={copyCandidate}
+                activeTab={activeCandidateTab}
+                setActiveTab={setActiveCandidateTab}
               />
             ) : null}
             <div className="list">
@@ -1728,9 +1714,9 @@ export default function Home() {
               ) : null}
               {activity.length > 0 && !visibleActivity.length ? (
                 <p className="subtle">
-                  {activeActivityTab === "actionable" && !filteredActivity.length
+                  {activeCandidateTab === "actionable" && candidates.length && !filteredActivity.length
                     ? "No actionable wallet activity is visible right now. Open All activity to inspect the rest."
-                    : activeActivityTab === "actionable"
+                    : activeCandidateTab === "actionable" && candidates.length
                     ? "No actionable transactions yet today. Use show more to expand older wallet activity."
                     : "No transactions yet today. Use show more to expand older wallet activity."}
                 </p>
@@ -2056,13 +2042,16 @@ function CandidateList({
   copyResults,
   busy,
   copyCandidate,
+  activeTab,
+  setActiveTab
 }: {
   candidates: TradeCandidate[];
   copyResults: Record<string, CopyResult>;
   busy: string;
   copyCandidate: (candidate: TradeCandidate) => void;
+  activeTab: CandidateTab;
+  setActiveTab: (tab: CandidateTab) => void;
 }) {
-  const [activeTab, setActiveTab] = useState<CandidateTab>("actionable");
   const [visibleCount, setVisibleCount] = useState(5);
 
   const tabCandidates = useMemo(
