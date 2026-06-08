@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { classifyCandidateTrust } from "./candidateTrust";
 import { deriveTradeCandidates } from "./candidates";
-import { DEFAULT_COPY_SETTINGS, ETH_CHAIN_ID } from "./constants";
+import { DEFAULT_COPY_SETTINGS, DEFAULT_EXIT_RULES, ETH_CHAIN_ID } from "./constants";
 import { getDb } from "./db";
-import type { CopyAttemptStatus, CopySettings, LedgerEntry, Portfolio, Position, Token, Trade, TradeCandidate, TradeInput, TradeLedgerInput, Wallet, WalletActivity } from "./types";
+import type { CopyAttemptStatus, CopySettings, ExitFailure, ExitRules, LedgerEntry, Portfolio, Position, Token, Trade, TradeCandidate, TradeInput, TradeLedgerInput, Wallet, WalletActivity } from "./types";
 import { derivePortfolioTotals, derivePositions, ledgerDeltaFromTrade } from "./ledger";
 import { summarizeImportBundle, type ImportBundle, type ImportSummary } from "./importBundle";
 
@@ -135,6 +135,61 @@ export function updateCopySettings(settings: CopySettings): CopySettings {
   return normalized;
 }
 
+export function getExitRules(): ExitRules {
+  const row = getDb().prepare("SELECT value FROM settings WHERE key = 'exit_rules'").get() as Row | undefined;
+  if (!row) return { ...DEFAULT_EXIT_RULES };
+  try {
+    return normalizeExitRules(JSON.parse(String(row.value)));
+  } catch {
+    return { ...DEFAULT_EXIT_RULES };
+  }
+}
+
+export function updateExitRules(rules: ExitRules): ExitRules {
+  const normalized = normalizeExitRules(rules);
+  getDb()
+    .prepare(
+      `INSERT INTO settings (key, value)
+       VALUES ('exit_rules', ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`
+    )
+    .run(JSON.stringify(normalized));
+  return normalized;
+}
+
+export function getExitFailures(): ExitFailure[] {
+  const row = getDb().prepare("SELECT value FROM settings WHERE key = 'exit_failures'").get() as Row | undefined;
+  if (!row) return [];
+  try {
+    const parsed = JSON.parse(String(row.value));
+    return Array.isArray(parsed) ? (parsed as ExitFailure[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function addExitFailure(failure: ExitFailure): void {
+  const failures = getExitFailures().filter((f) => f.tokenAddress !== failure.tokenAddress);
+  failures.push(failure);
+  getDb()
+    .prepare(
+      `INSERT INTO settings (key, value)
+       VALUES ('exit_failures', ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`
+    )
+    .run(JSON.stringify(failures));
+}
+
+export function removeExitFailure(tokenAddress: string): void {
+  const failures = getExitFailures().filter((f) => f.tokenAddress !== tokenAddress);
+  getDb()
+    .prepare(
+      `INSERT INTO settings (key, value)
+       VALUES ('exit_failures', ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`
+    )
+    .run(JSON.stringify(failures));
+}
 
 export function listWallets(): Wallet[] {
   return (getDb().prepare("SELECT * FROM wallets ORDER BY created_at DESC").all() as Row[]).map((row) => ({
@@ -1297,4 +1352,17 @@ function normalizeTokenList(value: unknown) {
         .filter((item) => /^0x[a-f0-9]{40}$/.test(item))
     )
   );
+}
+
+function normalizeExitRules(value: unknown): ExitRules {
+  const input = value && typeof value === "object" ? (value as Partial<ExitRules>) : {};
+  return {
+    enabled: input.enabled === true,
+    takeProfitPct: typeof input.takeProfitPct === "number" && input.takeProfitPct > 0 ? input.takeProfitPct : null,
+    stopLossPct: typeof input.stopLossPct === "number" && input.stopLossPct > 0 ? input.stopLossPct : null,
+    exitSizePct: boundedNumber(input.exitSizePct, DEFAULT_EXIT_RULES.exitSizePct, 1, 100),
+    checkIntervalSecs: [30, 60, 120, 300, 600].includes(Number(input.checkIntervalSecs))
+      ? Number(input.checkIntervalSecs)
+      : DEFAULT_EXIT_RULES.checkIntervalSecs
+  };
 }
