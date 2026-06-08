@@ -2,6 +2,35 @@
 
 ## Latest Session Notes
 
+Just shipped on local `main` (not pushed yet): fast position exits + today-first dashboard lists + fee-model correction for new trades.
+
+- Dashboard flow polish in `src/app/page.tsx`:
+  - Moved **Trade history** below **Wallet activity**.
+  - Trade history now defaults to **today's trades** and appends older rows 5 at a time with `Show more`.
+  - Raw wallet activity now defaults to **today's transactions** and appends older rows 5 at a time with the same `Show more` pattern.
+  - Open positions now have `Sell 50%` and `Sell all` actions that post directly to `/api/trades/execute` using the current trade-ticket slippage/gas settings, skipping the manual preview step for urgent exits.
+- Trade-history/table tweaks in `src/app/page.tsx`:
+  - Replaced `Qty` with `Spent`.
+  - Added `Net return`, computed from realized PnL over the sold cost basis and therefore net of buy/sell explicit fees.
+  - Renamed the fee column to `Costs`.
+- Quote/fee-model correction for **new trades going forward** in `src/lib/external.ts`:
+  - The configured slippage tolerance is no longer booked as a paid fee on new trades.
+  - New trades now treat **explicit fees** as gas plus provider-reported 0x/integrator fees only.
+  - Added an inferred `Price impact + pool fees` estimate using a small reference quote, stored in the quote snapshot and surfaced in the UI as an implicit execution-cost line.
+  - Legacy trades are left untouched; the dashboard still labels their historical `slippageUsd` contribution as `Slip buffer` so old rows are not silently reinterpreted.
+- Verification: `npm test -- --run src/lib/external.test.ts` passes (17 tests), `npm run build` passes, and manual browser checks on June 8, 2026 confirmed the new buttons/list ordering and the updated trade-history headers.
+
+Just shipped on local `main` (not pushed yet): wallet-activity candidate list tabs + pagination.
+
+- `feat: add CandidateList component with Actionable/Review/All tabs and show more` + follow-up polish/fixes (commits `1743032`, `78131ab`, `7ede77a`, `22036d2`, `7771e14`, `135e5aa`):
+  - Replaced the old hard cap of `candidates.slice(0, 5)` in the Wallet activity panel with a `CandidateList` component in `src/app/page.tsx`.
+  - Added three trust-bucket tabs: `Actionable`, `Review`, and `All`. Actionable includes `Ready` + `Copied`; Review includes the non-copyable/manual-review trust labels.
+  - Added progressive pagination: each tab shows 5 cards initially, then appends 10 more per click via a full-width `Show more` button.
+  - Added supporting tab styles in `src/app/globals.css` and kept the existing candidate-card/copy-flow behavior intact.
+  - Rebased the feature branch cleanly onto current `main`, then fast-forwarded local `main` to include it.
+- Verification: `npx tsc --noEmit` clean, `npm test` 16 files / 149 tests pass, `npm run build` passes, and manual UI check looked good on June 8, 2026.
+- Note: the seeded local watchlist entry is still the placeholder `0xTestWallet...`, so repeating the candidate-tab flow against live fetched activity still requires adding a real wallet address.
+
 Just shipped on `main`: dashboard trust signals quick wins.
 
 - `feat: surface total unrealized P&L in top metrics row + auto-refresh interval selector` (commits `06fbbe5`, `6a6ab96`):
@@ -153,7 +182,7 @@ Latest verification after the import/restore work:
 
 ## Resume Here Tomorrow
 
-State of `main`: clean. Latest commits: `feat: surface total unrealized P&L in top metrics row + auto-refresh interval selector` + `fix: add standalone .good and .bad color utility classes`. Dashboard trust signals quick wins (Build Next #5 follow-ons) are complete.
+State of local `main`: candidate-list tabs + pagination are merged and verified locally, but not pushed; `main` is ahead of `origin/main`. Latest commits: `fix: restore .good and .bad color utility classes accidentally removed`, `feat: replace inline candidate render with CandidateList tabs component`, `fix: improve CandidateList quality — memoize tab counts, remove extra effect, inline style`. Working tree is not clean: `docs/superpowers/plans/2026-06-07-dashboard-trust-signals-quick-wins.md` is modified and local screenshot artifacts plus `.claude/` are untracked. Dashboard trust signals quick wins (Build Next #5 follow-ons) are now complete through candidate-list pagination.
 
 Just shipped on `main`: OCEAN decoded sell and CALI missing-address candidate fixtures. Two new
 fixture groups lock in the remaining Ethereum drift shapes: OCEAN erc20-out + internal-ETH-in
@@ -243,7 +272,7 @@ The next work should focus on simulation trustworthiness before larger platform 
 - Alchemy-backed Ethereum/Base wallet activity fetch.
 - Alchemy-backed ERC-20 metadata lookup.
 - 0x Swap API v2 `/swap/allowance-holder/price` previews for manual buy/sell simulations.
-- Paper trade execution with gas, slippage, 0x fee snapshot storage, positions, trade history, realized PnL, and fee tracking.
+- Paper trade execution with gas, provider-reported 0x/integrator fees, inferred execution-cost snapshots, positions, trade history, realized PnL, and fee tracking.
 
 This is enough to test the workflow, but it should not be treated as reliable PnL analysis until the quote and wallet parsing layers are tightened.
 
@@ -253,7 +282,7 @@ This is enough to test the workflow, but it should not be treated as reliable Pn
 - `NEXT_VERSION.md` is the active handoff doc. `NEXT_SESSION.md` was intentionally retired.
 - `trader.md` and `tradercheck.md` are useful long-term feature references, not the implementation source of truth.
 - The current UI is intentionally manual-gated: wallet fetches, candidate copies, paper trades, and total-loss closes are user-triggered.
-- Slippage is currently a simulation buffer, not an actual exchange fee. It is calculated as notional times slippage bps.
+- For **new trades going forward**, slippage tolerance is not booked as a paid fee. Instead, quotes store explicit fees (gas + provider-reported 0x/integrator fees) plus an inferred `Price impact + pool fees` estimate in the snapshot for UI/debug purposes. Legacy historical trades may still have `slippageUsd` populated from the older simulation-buffer model.
 - Manual total-loss closes are represented as zero-price sell trades with a quote snapshot action of `mark-total-loss`.
 - Trade-history warning badges are front-end derived from stored trade fields and quote snapshots. They do not yet persist a separate warning model.
 - Candidate status counts currently summarize the in-memory wallet activity view, not a global/multi-wallet aggregate dashboard.
@@ -312,7 +341,11 @@ This is enough to test the workflow, but it should not be treated as reliable Pn
 - The dashboard now has a local paper-portfolio archive/restore workflow for risky experiments. Archives snapshot trades, ledger entries, quote previews, and copied-candidate links while preserving watched wallets/activity/candidates/settings outside the archive.
 - The dashboard can now download a local JSON export containing wallets, settings, tokens, raw activity, candidates, quotes, trades, ledger entries, and derived portfolio state before resets or experiments.
 - Wallet activity now summarizes copied, decoded, review, failed, and skipped candidate parse-status counts.
-- Trade history now breaks fees into gas, slippage, and 0x fee lines instead of only showing a combined total.
+- Wallet activity candidate cards now support `Actionable` / `Review` / `All` tabs plus progressive `Show more` pagination instead of the old hard cap of 5 visible candidates.
+- Wallet activity raw transfer cards now default to today's transactions only and append older rows via `Show more`.
+- Trade history now defaults to today's trades only, appends older rows via `Show more`, and shows `Spent`, `Costs`, and `Net return` instead of the older quantity-only view.
+- New open-position quick actions `Sell 50%` and `Sell all` bypass the manual preview flow and execute directly with the current trade-ticket tolerance/buffer settings.
+- Trade history cost breakdown now distinguishes explicit fees from inferred swap cost on new trades: gas, 0x fee, and `Price impact + pool fees`. Legacy rows keep their historical `Slip buffer` label.
 - Trade history now shows warning badges for manual total-loss closes, high gas impact, high slippage impact, and stored quote warnings.
 - Accounting is ledger-backed: an append-only `ledger_entries` table (one signed-delta row per trade) is the single writable source of truth; cash, realized PnL, fees, and positions are derived on read by summing deltas, so running totals cannot drift.
 - A single pure `ledgerDeltaFromTrade` function feeds the write path, the backfill migration, and the verify cross-check identically — there is no second copy of the delta math.
@@ -372,7 +405,7 @@ Do not rely on 0x Trade Analytics for arbitrary GMGN wallets. It only returns tr
    - DONE: Surface unrealized P&L in the top-level dashboard metrics row (total open gain/loss). `totalUnrealizedPnlUsd` useMemo + 5th Metric cell with green/red coloring.
    - DONE: Auto-refresh prices on an opt-in interval. `autoRefreshInterval` state + `fetchPricesRef` stable ref + interval `<select>` (Manual / 1 min / 2 min / 5 min) in Positions panel header.
    - Follow-on: wallet performance scoring — score each watched wallet by copy-trade outcomes (win rate, realized PnL, fee drag) so the watchlist shows who is worth copying.
-   - Follow-on: candidate list filtering and pagination — sort/filter by trust/side/status and page through all candidates instead of the current hard cap of 5.
+   - DONE: candidate list filtering and pagination. Wallet activity now uses `Actionable` / `Review` / `All` trust tabs and progressive `Show more` pagination instead of the current hard cap of 5.
    - Continue refining fee breakdown details as more execution costs are modeled.
    - Add persisted copied/skipped/failed candidate counts across wallet fetches if the activity view becomes multi-wallet.
    - Continue adding warnings for low liquidity, unreliable 0x simulation, stale quote assumptions, and unsupported trade patterns.

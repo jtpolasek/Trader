@@ -41,6 +41,8 @@ type SwapQuote = {
   rawResponse: unknown;
 };
 
+const REFERENCE_SPOT_USD = 10;
+
 export async function resolveTokenFromAlchemy(address: string, chainId = ETH_CHAIN_ID): Promise<Token> {
   const tokenAddress = normalizeAddress(address);
   const chainTokens = getChainTokens(chainId);
@@ -159,6 +161,7 @@ export async function buildQuotePreview(input: {
   });
 
   const ethUsd = await getNativeUsdPrice(chainId);
+  const spotTokenPriceUsd = await getReferenceTokenPriceUsd(input.token, chainId);
   const gasEth = ((quote.gasUnits ?? 0) * (quote.gasPriceWei ?? 0)) / 1e18;
   const gasUsd = (quote.gasUsd ?? gasEth * ethUsd) * (1 + input.gasBufferBps / 10_000);
 
@@ -169,6 +172,12 @@ export async function buildQuotePreview(input: {
   const tokenQuantity = isBuy ? buyQuantity : sellQuantity;
   const tokenNotionalUsd = isBuy ? input.usdAmount ?? 0 : sellProceeds;
   const derivedTokenPriceUsd = tokenQuantity > 0 ? tokenNotionalUsd / tokenQuantity : 0;
+  const implicitSwapCostUsd = estimateImplicitSwapCostUsd({
+    side: input.side,
+    spotTokenPriceUsd,
+    quantity: tokenQuantity,
+    notionalUsd: tokenNotionalUsd
+  });
 
   const anchors: FeePriceAnchor[] = [
     { address: chainTokens.weth.address, usdPrice: ethUsd, decimals: chainTokens.weth.decimals },
@@ -202,7 +211,9 @@ export async function buildQuotePreview(input: {
       gasUnits: quote.gasUnits ?? 0,
       gasPriceWei: quote.gasPriceWei ?? 0,
       gasUsd: quote.gasUsd,
-      dexFeeUsd
+      dexFeeUsd,
+      spotTokenPriceUsd,
+      implicitSwapCostUsd
     },
     valuedFeeUsd: valuedUsd,
     valuedFeeTokens: pricedTokens,
@@ -214,8 +225,8 @@ export async function buildQuotePreview(input: {
   if (isBuy) {
     const quantity = buyQuantity;
     const notionalUsd = input.usdAmount ?? 0;
-    const slippageUsd = notionalUsd * (input.slippageBps / 10_000);
-    const totalCostUsd = notionalUsd + gasUsd + slippageUsd + dexFeeUsd;
+    const slippageUsd = 0;
+    const totalCostUsd = notionalUsd + gasUsd + dexFeeUsd;
     return {
       side: "buy",
       token: input.token,
@@ -234,8 +245,8 @@ export async function buildQuotePreview(input: {
 
   const quantity = sellQuantity;
   const proceedsUsd = sellProceeds;
-  const slippageUsd = proceedsUsd * (input.slippageBps / 10_000);
-  const totalFees = gasUsd + slippageUsd + dexFeeUsd;
+  const slippageUsd = 0;
+  const totalFees = gasUsd + dexFeeUsd;
   return {
     side: "sell",
     token: input.token,
@@ -250,6 +261,38 @@ export async function buildQuotePreview(input: {
     warnings,
     quoteSnapshot: snapshotBase
   };
+}
+
+async function getReferenceTokenPriceUsd(token: Token, chainId: number) {
+  const chainTokens = getChainTokens(chainId);
+  const quote = await getBestSwapQuote({
+    chainId,
+    side: "buy",
+    sellToken: chainTokens.usdc.address,
+    buyToken: token.address,
+    sellAmount: toBaseUnits(REFERENCE_SPOT_USD, chainTokens.usdc.decimals),
+    slippageBps: 0
+  });
+  const tokensReceived = fromBaseUnits(quote.buyAmount, token.decimals);
+  if (!(tokensReceived > 0)) {
+    throw new Error("Could not derive a reference token price.");
+  }
+  return REFERENCE_SPOT_USD / tokensReceived;
+}
+
+function estimateImplicitSwapCostUsd(input: {
+  side: TradeSide;
+  spotTokenPriceUsd: number;
+  quantity: number;
+  notionalUsd: number;
+}) {
+  if (!(input.spotTokenPriceUsd > 0) || !(input.quantity > 0) || !(input.notionalUsd > 0)) return 0;
+
+  if (input.side === "buy") {
+    return Math.max(0, input.notionalUsd - input.quantity * input.spotTokenPriceUsd);
+  }
+
+  return Math.max(0, input.quantity * input.spotTokenPriceUsd - input.notionalUsd);
 }
 
 export async function fetchWalletTransfers(walletAddress: string): Promise<{

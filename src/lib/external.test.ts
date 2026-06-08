@@ -330,13 +330,16 @@ describe("buildQuotePreview unpriced fee valuation", () => {
     else process.env.ZEROX_API_KEY = originalApiKey;
   });
 
-  function mockSwapThenNative(swapQuote: Record<string, unknown>) {
+  function mockSwapThenNative(swapQuote: Record<string, unknown>, referenceQuote?: Record<string, unknown>) {
     process.env.ZEROX_API_KEY = "test-key";
     return vi
       .spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(jsonResponse(swapQuote))
       .mockResolvedValueOnce(
         jsonResponse({ buyAmount: "3000000000", sellAmount: "1000000000000000000" })
+      )
+      .mockResolvedValueOnce(
+        jsonResponse(referenceQuote ?? { buyAmount: "25000000000000000000", sellAmount: "10000000" })
       );
   }
 

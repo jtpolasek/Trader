@@ -87,6 +87,8 @@ type QuoteDebugSnapshot = {
     gasUnits?: number;
     gasPriceWei?: number;
     dexFeeUsd?: number;
+    spotTokenPriceUsd?: number;
+    implicitSwapCostUsd?: number;
   };
   valuedFeeUsd?: number;
   valuedFeeTokens?: string[];
@@ -172,12 +174,14 @@ export default function Home() {
     fetched: number;
     warnings: string[];
   } | null>(null);
+  const [extraVisibleActivity, setExtraVisibleActivity] = useState(0);
   const [busy, setBusy] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [ledgerOk, setLedgerOk] = useState<{ ok: boolean; count: number } | null>(null);
   const [paperArchives, setPaperArchives] = useState<PaperArchiveSummary[]>([]);
   const [selectedArchiveId, setSelectedArchiveId] = useState("");
+  const [extraVisibleTrades, setExtraVisibleTrades] = useState(0);
   const fetchPricesRef = useRef<() => void>(() => {});
 
   const refresh = async () => {
@@ -218,6 +222,14 @@ export default function Home() {
       setCopySettingsForm(settingsToForm(data.copySettings));
     }
   }, [data?.copySettings]);
+
+  useEffect(() => {
+    setExtraVisibleTrades(0);
+  }, [data?.trades]);
+
+  useEffect(() => {
+    setExtraVisibleActivity(0);
+  }, [activity]);
 
   useEffect(() => {
     if (!fetchedAt) return;
@@ -265,6 +277,35 @@ export default function Home() {
     }
     return priced > 0 ? total : null;
   }, [data?.positions, positionPrices]);
+
+  const allTrades = data?.trades ?? [];
+  const todayKey = localDateKey(new Date());
+  const todayActivity = useMemo(
+    () => activity.filter((item) => localDateKey(new Date(item.timestamp)) === todayKey),
+    [activity, todayKey]
+  );
+  const olderActivity = useMemo(
+    () => activity.filter((item) => localDateKey(new Date(item.timestamp)) !== todayKey),
+    [activity, todayKey]
+  );
+  const visibleActivity = useMemo(
+    () => [...todayActivity, ...olderActivity.slice(0, extraVisibleActivity)],
+    [todayActivity, olderActivity, extraVisibleActivity]
+  );
+  const remainingOlderActivity = Math.max(0, olderActivity.length - extraVisibleActivity);
+  const todayTrades = useMemo(
+    () => allTrades.filter((trade) => localDateKey(new Date(trade.createdAt)) === todayKey),
+    [allTrades, todayKey]
+  );
+  const olderTrades = useMemo(
+    () => allTrades.filter((trade) => localDateKey(new Date(trade.createdAt)) !== todayKey),
+    [allTrades, todayKey]
+  );
+  const visibleTrades = useMemo(
+    () => [...todayTrades, ...olderTrades.slice(0, extraVisibleTrades)],
+    [todayTrades, olderTrades, extraVisibleTrades]
+  );
+  const remainingOlderTrades = Math.max(0, olderTrades.length - extraVisibleTrades);
 
   async function submitWallet(event: FormEvent) {
     event.preventDefault();
@@ -434,6 +475,60 @@ export default function Home() {
       const reason = err instanceof Error ? err.message : "Could not execute trade.";
       if (tradeForm.side === "sell" && selectedPosition && isNoRouteError(reason)) {
         setLossOfferTokenAddress(selectedPosition.tokenAddress);
+      }
+      setError(reason);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function quickSellPosition(position: Position, fraction: 0.5 | 1) {
+    const quantity = position.quantity * fraction;
+    if (!(quantity > 0)) {
+      setError(`No ${position.symbol} quantity is available to sell.`);
+      return;
+    }
+
+    const busyKey = `quick-sell-${position.tokenAddress}-${fraction}`;
+    setBusy(busyKey);
+    setError("");
+    setMessage("");
+    setLossOfferTokenAddress("");
+    try {
+      const response = await fetch("/api/trades/execute", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          side: "sell",
+          chainId: position.chainId,
+          tokenAddress: position.tokenAddress,
+          tokenQuantity: quantity,
+          slippageBps: Number(tradeForm.slippageBps),
+          gasBufferBps: Number(tradeForm.gasBufferBps)
+        })
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error ?? "Could not execute quick sell.");
+      setPreview(payload.preview);
+      setFetchedAt(Date.now());
+      setIsStale(false);
+      setTradeForm((current) => ({
+        ...current,
+        side: "sell",
+        chainId: String(position.chainId),
+        tokenAddress: position.tokenAddress,
+        tokenQuantity: String(quantity)
+      }));
+      setMessage(
+        fraction === 1
+          ? `Sold all ${position.symbol}.`
+          : `Sold 50% of ${position.symbol}.`
+      );
+      await refresh();
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : "Could not execute quick sell.";
+      if (isNoRouteError(reason)) {
+        setLossOfferTokenAddress(position.tokenAddress);
       }
       setError(reason);
     } finally {
@@ -1110,7 +1205,7 @@ export default function Home() {
                   </div>
                 )}
                 <div className="field">
-                  <label htmlFor="slippageBps">Slippage bps</label>
+                  <label htmlFor="slippageBps">Slippage tolerance bps</label>
                   <input
                     id="slippageBps"
                     type="number"
@@ -1159,18 +1254,21 @@ export default function Home() {
                 <div className="grid dashboard-grid">
                   <Mini label="Notional" value={formatUsd(preview.notionalUsd)} />
                   <Mini label="Gas" value={formatUsd(preview.gasUsd)} />
-                  <Mini label="Slippage" value={formatUsd(preview.slippageUsd)} />
+                  <Mini label="0x fee" value={formatUsd(preview.dexFeeUsd)} />
+                  <Mini label="Price impact + pool fees" value={formatUsd(getImplicitSwapCostUsd(preview.quoteSnapshot))} />
                   <Mini
                     label={preview.side === "buy" ? "All-in cost" : "Net proceeds"}
                     value={formatUsd(preview.side === "buy" ? preview.totalCostUsd : preview.sellProceedsUsd)}
                   />
                 </div>
                 <p className="subtle">
-                  0x fee {formatUsd(preview.dexFeeUsd)}
-                  {getValuedFeeUsd(preview.quoteSnapshot) > 0
-                    ? ` (incl. ${formatUsd(getValuedFeeUsd(preview.quoteSnapshot))} valued from a non-USDC token)`
-                    : ""}
+                  Explicit fees are gas plus any provider-reported 0x/integrator fee. Price impact + pool fees is inferred from the gap between this trade quote and a small reference quote, so it may also absorb route costs embedded in the quoted output.
                 </p>
+                {getValuedFeeUsd(preview.quoteSnapshot) > 0 ? (
+                  <p className="subtle">
+                    0x fee includes {formatUsd(getValuedFeeUsd(preview.quoteSnapshot))} valued from a non-USDC token.
+                  </p>
+                ) : null}
                 {preview.warnings.map((warning) => (
                   <div className="alert" key={warning}>
                     {warning}
@@ -1442,6 +1540,7 @@ export default function Home() {
             <div className="list">
               {data?.positions.length ? (
                 data.positions.map((position) => {
+                  const isQuickSelling = busy.startsWith(`quick-sell-${position.tokenAddress}-`);
                   const currentPrice = positionPrices[position.tokenAddress];
                   const currentValueUsd = currentPrice !== undefined ? currentPrice * position.quantity : undefined;
                   const unrealizedPnlUsd = currentPrice !== undefined
@@ -1461,9 +1560,30 @@ export default function Home() {
                           {formatUsd(position.realizedPnlUsd)}
                         </span>
                         <button
+                          type="button"
+                          className="button secondary"
+                          onClick={() => quickSellPosition(position, 0.5)}
+                          disabled={isQuickSelling || busy === `loss-${position.tokenAddress}`}
+                          title="Immediately sell half of this position using the current slippage and gas settings"
+                        >
+                          {busy === `quick-sell-${position.tokenAddress}-0.5` ? <Loader2 size={18} /> : <Send size={18} />}
+                          Sell 50%
+                        </button>
+                        <button
+                          type="button"
+                          className="button secondary"
+                          onClick={() => quickSellPosition(position, 1)}
+                          disabled={isQuickSelling || busy === `loss-${position.tokenAddress}`}
+                          title="Immediately sell the full position using the current slippage and gas settings"
+                        >
+                          {busy === `quick-sell-${position.tokenAddress}-1` ? <Loader2 size={18} /> : <Send size={18} />}
+                          Sell all
+                        </button>
+                        <button
+                          type="button"
                           className="button danger"
                           onClick={() => markPositionTotalLoss(position)}
-                          disabled={busy === `loss-${position.tokenAddress}`}
+                          disabled={busy === `loss-${position.tokenAddress}` || isQuickSelling}
                           title="Mark position as total loss"
                         >
                           {busy === `loss-${position.tokenAddress}` ? <Loader2 size={18} /> : <Trash2 size={18} />}
@@ -1493,53 +1613,9 @@ export default function Home() {
 
           <div className="panel">
             <div className="row">
-              <h2>Trade history</h2>
-              <span className="pill">
-                {stats?.wins ?? 0}W / {stats?.losses ?? 0}L
-              </span>
-            </div>
-            <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Time</th>
-                    <th>Side</th>
-                    <th>Token</th>
-                    <th>Signals</th>
-                    <th>Qty</th>
-                    <th>Price</th>
-                    <th>Fees</th>
-                    <th>PnL</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data?.trades.map((trade) => (
-                    <tr key={trade.id}>
-                      <td>{new Date(trade.createdAt).toLocaleString()}</td>
-                      <td>
-                        <span className={trade.side === "buy" ? "pill good" : "pill warn"}>{trade.side}</span>
-                      </td>
-                      <td>{trade.symbol}</td>
-                      <td>
-                        <TradeSignals trade={trade} />
-                      </td>
-                      <td>{formatNumber(trade.quantity, 6)}</td>
-                      <td>{formatUsdPrice(trade.priceUsd)}</td>
-                      <td>
-                        <FeeBreakdown trade={trade} />
-                      </td>
-                      <td>{formatUsd(trade.realizedPnlUsd)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <div className="panel">
-            <div className="row">
               <h2>Wallet activity</h2>
               <span className="pill">{candidates.length} candidates</span>
+              <span className="pill">{todayActivity.length} today</span>
             </div>
             <CandidateStatusSummary stats={candidateStats} />
             {activityContext ? (
@@ -1563,7 +1639,7 @@ export default function Home() {
               />
             ) : null}
             <div className="list">
-              {activity.slice(0, 8).map((item) => (
+              {visibleActivity.map((item) => (
                 <article className="card" key={item.id}>
                   <div className="row">
                     <div>
@@ -1588,7 +1664,88 @@ export default function Home() {
                     : "Fetch a watched wallet to cache recent transfer activity."}
                 </p>
               ) : null}
+              {activity.length > 0 && !visibleActivity.length ? (
+                <p className="subtle">No transactions yet today. Use show more to expand older wallet activity.</p>
+              ) : null}
             </div>
+            {remainingOlderActivity > 0 ? (
+              <button
+                type="button"
+                className="button secondary show-more-button"
+                onClick={() => setExtraVisibleActivity((count) => count + 5)}
+              >
+                Show {Math.min(5, remainingOlderActivity)} more ({remainingOlderActivity} older)
+              </button>
+            ) : null}
+          </div>
+
+          <div className="panel">
+            <div className="row">
+              <h2>Trade history</h2>
+              <span className="pill">{todayTrades.length} today</span>
+              <span className="pill">
+                {stats?.wins ?? 0}W / {stats?.losses ?? 0}L
+              </span>
+            </div>
+            {allTrades.length ? (
+              <>
+                {visibleTrades.length ? (
+                  <div className="table-wrap">
+                    <table>
+                      <thead>
+                      <tr>
+                        <th>Time</th>
+                        <th>Side</th>
+                        <th>Token</th>
+                        <th>Signals</th>
+                        <th>Spent</th>
+                        <th>Price</th>
+                        <th>Costs</th>
+                        <th>PnL</th>
+                        <th>Net return</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {visibleTrades.map((trade) => (
+                        <tr key={trade.id}>
+                            <td>{new Date(trade.createdAt).toLocaleString()}</td>
+                            <td>
+                              <span className={trade.side === "buy" ? "pill good" : "pill warn"}>{trade.side}</span>
+                            </td>
+                            <td>{trade.symbol}</td>
+                          <td>
+                            <TradeSignals trade={trade} />
+                          </td>
+                          <td>{formatUsd(tradeSpentUsd(trade))}</td>
+                          <td>{formatUsdPrice(trade.priceUsd)}</td>
+                          <td>
+                            <FeeBreakdown trade={trade} />
+                          </td>
+                          <td>{formatUsd(trade.realizedPnlUsd)}</td>
+                          <td className={tradeReturnClassName(trade)}>
+                            {formatNullablePercent(tradeReturnPercent(trade))}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                ) : (
+                  <p className="subtle">No trades yet today. Use show more to expand older history.</p>
+                )}
+                {remainingOlderTrades > 0 ? (
+                  <button
+                    type="button"
+                    className="button secondary show-more-button"
+                    onClick={() => setExtraVisibleTrades((count) => count + 5)}
+                  >
+                    Show {Math.min(5, remainingOlderTrades)} more ({remainingOlderTrades} older)
+                  </button>
+                ) : null}
+              </>
+            ) : (
+              <p className="subtle">Trades will appear here after your first paper execution.</p>
+            )}
           </div>
         </div>
       </section>
@@ -1672,15 +1829,16 @@ function CandidateAttentionStrip({ summary }: { summary?: CandidateAttention }) 
 }
 
 function FeeBreakdown({ trade }: { trade: Trade }) {
-  const totalFees = trade.gasUsd + trade.slippageUsd + trade.dexFeeUsd;
   const snapshot = parseSnapshot(trade.quoteSnapshot);
+  const implicitSwapCostUsd = getImplicitSwapCostUsd(snapshot) || legacySlippageBufferUsd(trade, snapshot);
+  const totalCosts = trade.gasUsd + trade.dexFeeUsd + implicitSwapCostUsd;
   const valuedFeeUsd = getValuedFeeUsd(snapshot);
   return (
     <div className="fee-stack">
-      <strong>{formatUsd(totalFees)}</strong>
+      <strong>{formatUsd(totalCosts)}</strong>
       <span>Gas {formatUsd(trade.gasUsd)}</span>
-      <span>Slip {formatUsd(trade.slippageUsd)}</span>
       <span>0x {formatUsd(trade.dexFeeUsd)}</span>
+      <span>{isLegacySlippageTrade(snapshot) ? "Slip buffer" : "Swap"} {formatUsd(implicitSwapCostUsd)}</span>
       {valuedFeeUsd > 0 ? (
         <span className="subtle" title="Portion of the 0x fee that 0x reported in a non-USDC token and the simulator valued into USD.">
           incl. {formatUsd(valuedFeeUsd)} valued
@@ -1812,6 +1970,10 @@ function shortId(id: string) {
   return id.length > 8 ? id.slice(0, 8) : id;
 }
 
+function localDateKey(value: Date) {
+  return `${value.getFullYear()}-${value.getMonth()}-${value.getDate()}`;
+}
+
 type CandidateTab = "actionable" | "review" | "all";
 
 const ACTIONABLE_TRUST = new Set(["Ready", "Copied"]);
@@ -1853,6 +2015,7 @@ function CandidateList({
         {(["actionable", "review", "all"] as CandidateTab[]).map((tab) => (
           <button
             key={tab}
+            type="button"
             className={`tab-button${activeTab === tab ? " active" : ""}`}
             onClick={() => { setActiveTab(tab); setVisibleCount(5); }}
           >
@@ -1919,6 +2082,7 @@ function CandidateList({
       </div>
       {remaining > 0 ? (
         <button
+          type="button"
           className="button secondary show-more-button"
           onClick={() => setVisibleCount((n) => n + 10)}
         >
@@ -1947,7 +2111,8 @@ function getTradeSignals(trade: Trade): TradeSignal[] {
   const snapshot = parseSnapshot(trade.quoteSnapshot);
   const signals: TradeSignal[] = [];
   const gasImpact = trade.notionalUsd > 0 ? trade.gasUsd / trade.notionalUsd : 0;
-  const slippageImpact = trade.notionalUsd > 0 ? trade.slippageUsd / trade.notionalUsd : 0;
+  const swapCostUsd = getImplicitSwapCostUsd(snapshot) || legacySlippageBufferUsd(trade, snapshot);
+  const swapCostImpact = trade.notionalUsd > 0 ? swapCostUsd / trade.notionalUsd : 0;
   const snapshotWarnings = getSnapshotWarnings(snapshot);
 
   if (snapshot.action === "mark-total-loss" || (trade.side === "sell" && trade.priceUsd === 0 && trade.realizedPnlUsd < 0)) {
@@ -1966,11 +2131,13 @@ function getTradeSignals(trade: Trade): TradeSignal[] {
     });
   }
 
-  if (slippageImpact >= 0.02 || trade.slippageUsd >= 10) {
+  if (swapCostImpact >= 0.02 || swapCostUsd >= 10) {
     signals.push({
-      label: "High slip",
+      label: isLegacySlippageTrade(snapshot) ? "High slip" : "High swap cost",
       tone: "warn",
-      title: `Slippage buffer was ${formatPercent(slippageImpact)} of simulated notional.`
+      title: isLegacySlippageTrade(snapshot)
+        ? `Slippage buffer was ${formatPercent(swapCostImpact)} of simulated notional.`
+        : `Estimated price impact + pool fees were ${formatPercent(swapCostImpact)} of simulated notional.`
     });
   }
 
@@ -2020,6 +2187,39 @@ function getStillUnpricedFeeTokens(snapshot: Record<string, unknown>) {
   const fees = (snapshot as QuoteDebugSnapshot).stillUnpricedFees;
   if (!Array.isArray(fees)) return [];
   return fees.map((fee) => fee?.token).filter((token): token is string => typeof token === "string" && token.length > 0);
+}
+
+function getImplicitSwapCostUsd(snapshot: Record<string, unknown>) {
+  const value = (snapshot as QuoteDebugSnapshot).assumptions?.implicitSwapCostUsd;
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function isLegacySlippageTrade(snapshot: Record<string, unknown>) {
+  return (snapshot as QuoteDebugSnapshot).assumptions?.implicitSwapCostUsd === undefined;
+}
+
+function legacySlippageBufferUsd(trade: Trade, snapshot: Record<string, unknown>) {
+  return isLegacySlippageTrade(snapshot) ? trade.slippageUsd : 0;
+}
+
+function tradeSpentUsd(trade: Trade) {
+  if (trade.side === "buy") return trade.totalCostUsd;
+  return Math.max(0, trade.notionalUsd - trade.totalCostUsd - trade.realizedPnlUsd);
+}
+
+function tradeReturnPercent(trade: Trade) {
+  if (trade.side !== "sell") return null;
+  const spentUsd = tradeSpentUsd(trade);
+  if (!(spentUsd > 0)) return null;
+  return trade.realizedPnlUsd / spentUsd;
+}
+
+function tradeReturnClassName(trade: Trade) {
+  const value = tradeReturnPercent(trade);
+  if (value === null || value === undefined) return "subtle";
+  if (value > 0) return "good";
+  if (value < 0) return "bad";
+  return "";
 }
 
 function formatPercent(value: number) {
@@ -2073,8 +2273,10 @@ function QuoteDebug({ snapshot }: { snapshot: Record<string, unknown> }) {
     ["Gas units", debug.assumptions?.gasUnits ? formatNumber(debug.assumptions.gasUnits, 0) : ""],
     ["Gas price wei", debug.assumptions?.gasPriceWei ? formatNumber(debug.assumptions.gasPriceWei, 0) : ""],
     ["ETH/USD", debug.assumptions?.ethUsd ? formatUsd(debug.assumptions.ethUsd) : ""],
-    ["Slippage bps", debug.assumptions?.slippageBps?.toString()],
+    ["Slippage tolerance bps", debug.assumptions?.slippageBps?.toString()],
     ["Gas buffer bps", debug.assumptions?.gasBufferBps?.toString()],
+    ["Spot token price", debug.assumptions?.spotTokenPriceUsd !== undefined ? formatUsdPrice(debug.assumptions.spotTokenPriceUsd) : ""],
+    ["Price impact + pool fees", debug.assumptions?.implicitSwapCostUsd !== undefined ? formatUsd(debug.assumptions.implicitSwapCostUsd) : ""],
     ["0x fee", debug.assumptions?.dexFeeUsd !== undefined ? formatUsd(debug.assumptions.dexFeeUsd) : ""],
     ["Valued 0x fee", debug.valuedFeeUsd ? formatUsd(debug.valuedFeeUsd) : ""],
     ["Unpriced fee tokens", getStillUnpricedFeeTokens(snapshot).join(", ")]
