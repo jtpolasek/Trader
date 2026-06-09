@@ -9,9 +9,9 @@ let db: DatabaseSync | null = null;
 
 export function getDb() {
   if (!db) {
-    const dataDir = path.join(process.cwd(), "data");
-    fs.mkdirSync(dataDir, { recursive: true });
-    db = new DatabaseSync(path.join(dataDir, "paper-trader.db"));
+    const dbPath = process.env.PAPER_TRADER_DB_PATH || path.join(process.cwd(), "data", "paper-trader.db");
+    fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+    db = new DatabaseSync(dbPath);
     db.exec("PRAGMA journal_mode = WAL");
     db.exec("PRAGMA foreign_keys = ON");
     migrate(db);

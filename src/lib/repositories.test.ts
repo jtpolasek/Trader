@@ -9,6 +9,7 @@ const originalCwd = process.cwd();
 beforeEach(() => {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "gmgn-ledger-"));
   process.chdir(tempDir);
+  process.env.PAPER_TRADER_DB_PATH = path.join(tempDir, "data", "paper-trader.db");
   vi.resetModules();
 });
 
