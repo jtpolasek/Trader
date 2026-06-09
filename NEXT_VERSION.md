@@ -2,6 +2,26 @@
 
 ## Latest Session Notes
 
+Just shipped on local `main` (not pushed): background auto-copy worker (plan
+`docs/superpowers/plans/2026-06-08-auto-copy-worker.md`, merged via `feat/auto-copy-worker`).
+
+- New `autoCopy: boolean` on `CopySettings` (types, `DEFAULT_COPY_SETTINGS`, `normalizeCopySettings`,
+  settings API zod schema, dashboard copy-settings form with an Auto-copy checkbox). Defaults off.
+- New `src/lib/copyWorker.ts`: `shouldAutoCopy` (decoded + buy + no prior copy attempt),
+  `runCopyCheck` (polls watched wallets via `fetchWalletTransfers`, upserts candidates, auto-copies
+  eligible buys using the same sizing/quoting path as the manual copy route, stamps
+  `autoCopied: true` + `copiedFrom` in the quote snapshot, records failures via
+  `updateTradeCandidateCopyResult`), `startCopyWorker` (30s interval, 60s work guard),
+  `resetCopyWorkerState`. Registered in `src/instrumentation.ts` next to the exit worker.
+- Tests: `src/lib/copyWorker.test.ts` (4 unit + 4 integration with mocked `./external`).
+- Fix: `vitest.config.ts` now sets `fileParallelism: false` — copyWorker and exitWorker test files
+  raced on the shared SQLite DB ("database is locked") when run in parallel workers.
+- Fix: `getSnapshotWarnings` in `src/app/page.tsx` could return `undefined` (pre-existing tsc/build
+  break on main); now always returns `string[]`, so `npx tsc --noEmit` and `npm run build` are clean.
+- Verification: `npm test` 18 files / 174 tests, `npx tsc --noEmit` clean, `npm run build` passes.
+- Note: auto-copy buys only; sells remain manual. Worker fetches live wallet activity each cycle,
+  so it needs `ALCHEMY_API_KEY` and real watched wallets to do anything.
+
 Follow-up shipped on local `main` (not pushed yet): wallet activity now uses one tab row again.
 
 - Wallet-activity tab cleanup in `src/app/page.tsx`:
