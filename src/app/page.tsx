@@ -174,6 +174,18 @@ export default function Home() {
   const [isPricesStale, setIsPricesStale] = useState(false);
   const [autoRefreshInterval, setAutoRefreshInterval] = useState(0);
   const [dashboardRefreshInterval, setDashboardRefreshInterval] = useState(15);
+
+  useEffect(() => {
+    const stored = Number(window.localStorage.getItem(DASHBOARD_REFRESH_STORAGE_KEY));
+    if (DASHBOARD_REFRESH_OPTIONS.some((option) => option.seconds === stored)) {
+      setDashboardRefreshInterval(stored);
+    }
+  }, []);
+
+  function updateDashboardRefreshInterval(seconds: number) {
+    setDashboardRefreshInterval(seconds);
+    window.localStorage.setItem(DASHBOARD_REFRESH_STORAGE_KEY, String(seconds));
+  }
   const [lossOfferTokenAddress, setLossOfferTokenAddress] = useState("");
   const [activityContext, setActivityContext] = useState<{
     label: string;
@@ -191,8 +203,6 @@ export default function Home() {
   const [paperArchives, setPaperArchives] = useState<PaperArchiveSummary[]>([]);
   const [selectedArchiveId, setSelectedArchiveId] = useState("");
   const [extraVisibleTrades, setExtraVisibleTrades] = useState(0);
-  const activityContextRef = useRef<typeof activityContext>(null);
-  const fetchPricesRef = useRef<() => void>(() => {});
 
   const refresh = async () => {
     const response = await fetch("/api/portfolio", { cache: "no-store" });
@@ -243,10 +253,6 @@ export default function Home() {
   }, [data?.copySettings]);
 
   useEffect(() => {
-    activityContextRef.current = activityContext;
-  }, [activityContext]);
-
-  useEffect(() => {
     setExtraVisibleTrades(0);
   }, [data?.trades]);
 
@@ -274,26 +280,17 @@ export default function Home() {
     return () => clearInterval(interval);
   }, [pricesFetchedAt]);
 
-  useEffect(() => { fetchPricesRef.current = fetchPositionPrices; });
+  useInterval(() => fetchPositionPrices(), autoRefreshInterval);
 
-  useEffect(() => {
-    if (!autoRefreshInterval) return;
-    const id = setInterval(() => fetchPricesRef.current(), autoRefreshInterval * 1000);
-    return () => clearInterval(id);
-  }, [autoRefreshInterval]);
-
-  useEffect(() => {
-    if (!dashboardRefreshInterval) return;
-    const id = setInterval(() => {
-      refresh().catch(() => {});
-      refreshLedgerStatus().catch(() => {});
-      const currentActivity = activityContextRef.current;
-      if (currentActivity) {
-        refreshWalletActivity(currentActivity.address, currentActivity.label, true, true).catch(() => {});
-      }
-    }, dashboardRefreshInterval * 1000);
-    return () => clearInterval(id);
-  }, [dashboardRefreshInterval]);
+  useInterval(() => {
+    refresh().catch((err) => console.error("Dashboard auto-refresh failed:", err));
+    refreshLedgerStatus().catch((err) => console.error("Ledger auto-refresh failed:", err));
+    if (activityContext) {
+      refreshWalletActivity(activityContext.address, activityContext.label, true, true).catch((err) =>
+        console.error("Wallet activity auto-refresh failed:", err)
+      );
+    }
+  }, dashboardRefreshInterval);
 
   const selectedPosition = useMemo(
     () =>
@@ -397,14 +394,15 @@ export default function Home() {
       if (!response.ok) throw new Error(payload.error ?? "Could not fetch activity.");
       setActivity(payload.activity);
       setCandidates(Array.isArray(payload.candidates) ? payload.candidates : []);
+      const fetched = typeof payload.fetched === "number" ? payload.fetched : null;
       setActivityContext({
         label,
         address,
-        fetched: payload.fetched,
+        fetched: fetched ?? 0,
         warnings: Array.isArray(payload.warnings) ? payload.warnings : [],
         source: payload.source === "cached" ? "cached" : "fetched"
       });
-      return payload as { fetched: number };
+      return { fetched };
     } catch (err) {
       if (!quiet) setError(err instanceof Error ? err.message : "Could not fetch activity.");
       throw err;
@@ -417,8 +415,8 @@ export default function Home() {
     setError("");
     setMessage("");
     try {
-      const payload = await refreshWalletActivity(address, wallet.label, false);
-      setMessage(`Fetched ${payload?.fetched ?? 0} wallet transfers.`);
+      const { fetched } = await refreshWalletActivity(address, wallet.label, false);
+      setMessage(fetched === null ? "Wallet activity refreshed." : `Fetched ${fetched} wallet transfers.`);
     } catch {
       // Error already surfaced by refreshWalletActivity.
     } finally {
@@ -1055,14 +1053,14 @@ export default function Home() {
         <select
           className="archive-select"
           value={dashboardRefreshInterval}
-          onChange={(event) => setDashboardRefreshInterval(Number(event.target.value))}
+          onChange={(event) => updateDashboardRefreshInterval(Number(event.target.value))}
           title="Auto-refresh dashboard data"
         >
-          <option value={0}>Auto-refresh off</option>
-          <option value={15}>15 sec</option>
-          <option value={30}>30 sec</option>
-          <option value={60}>1 min</option>
-          <option value={300}>5 min</option>
+          {DASHBOARD_REFRESH_OPTIONS.map((option) => (
+            <option key={option.seconds} value={option.seconds}>
+              {option.label}
+            </option>
+          ))}
         </select>
         <input
           ref={importInputRef}
@@ -1793,7 +1791,7 @@ export default function Home() {
                 className="button secondary show-more-button"
                 onClick={() => setExtraVisibleActivity((count) => count + 5)}
               >
-                Show {Math.min(5, remainingOlderActivity)} more ({remainingOlderActivity} more)
+                Show {Math.min(5, remainingOlderActivity)} more ({remainingOlderActivity} older)
               </button>
             ) : null}
           </div>
@@ -2228,9 +2226,9 @@ function candidateLastCopyResult(candidate: TradeCandidate): CopyResult | null {
   };
 }
 
-function hydrateCopyResult(result: CopyResult | null, trades: Trade[]): CopyResult | null {
+function hydrateCopyResult(result: CopyResult | null, tradesById: Map<string, Trade>): CopyResult | null {
   if (!result || result.status !== "copied" || !result.tradeId) return result;
-  const trade = trades.find((item) => item.id === result.tradeId);
+  const trade = tradesById.get(result.tradeId);
   if (!trade) return result;
 
   return {
@@ -2297,6 +2295,27 @@ function shortId(id: string) {
   return id.length > 8 ? id.slice(0, 8) : id;
 }
 
+const DASHBOARD_REFRESH_STORAGE_KEY = "dashboardRefreshInterval";
+const DASHBOARD_REFRESH_OPTIONS = [
+  { seconds: 0, label: "Auto-refresh off" },
+  { seconds: 15, label: "15 sec" },
+  { seconds: 30, label: "30 sec" },
+  { seconds: 60, label: "1 min" },
+  { seconds: 300, label: "5 min" }
+];
+
+function useInterval(callback: () => void, seconds: number) {
+  const callbackRef = useRef(callback);
+  useEffect(() => {
+    callbackRef.current = callback;
+  });
+  useEffect(() => {
+    if (!seconds) return;
+    const id = setInterval(() => callbackRef.current(), seconds * 1000);
+    return () => clearInterval(id);
+  }, [seconds]);
+}
+
 function localDateKey(value: Date) {
   return `${value.getFullYear()}-${value.getMonth()}-${value.getDate()}`;
 }
@@ -2327,6 +2346,8 @@ function CandidateList({
   setActiveTab: (tab: CandidateTab) => void;
 }) {
   const [visibleCount, setVisibleCount] = useState(5);
+
+  const tradesById = useMemo(() => new Map(trades.map((trade) => [trade.id, trade])), [trades]);
 
   const tabCandidates = useMemo(
     () => (activeTab === "all" ? candidates : candidates.filter((c) => candidateTab(c) === activeTab)),
@@ -2361,7 +2382,7 @@ function CandidateList({
           const isCopying = busy === `copy-${candidate.id}`;
           const visibleCopyResult = isCopying
             ? null
-            : hydrateCopyResult(copyResults[candidate.id] ?? candidateLastCopyResult(candidate), trades);
+            : hydrateCopyResult(copyResults[candidate.id] ?? candidateLastCopyResult(candidate), tradesById);
           const trust = classifyCandidateTrust(candidate);
           return (
             <article className="candidate" key={candidate.id}>
