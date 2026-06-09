@@ -133,6 +133,7 @@ export type CopySettings = {
   insufficientCashBehavior: "skip" | "cap";
   allowlist: string[];
   blocklist: string[];
+  autoCopy: boolean;
 };
 
 export type ExitRules = {

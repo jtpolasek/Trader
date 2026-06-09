@@ -13,7 +13,8 @@ const schema = z.object({
   gasBufferBps: z.number().min(0).max(10000),
   insufficientCashBehavior: z.enum(["skip", "cap"]),
   allowlist: addressList,
-  blocklist: addressList
+  blocklist: addressList,
+  autoCopy: z.boolean()
 });
 
 export async function GET() {
