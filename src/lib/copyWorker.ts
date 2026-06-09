@@ -39,10 +39,11 @@ const POLL_INTERVAL_MS = 60_000;
 export async function runCopyCheck(): Promise<void> {
   const settings = getCopySettings();
   if (!settings.autoCopy) return;
+  const wallets = listWallets().filter((wallet) => wallet.autoCopy);
+  if (!wallets.length) return;
   if (Date.now() - lastCheckedAt < POLL_INTERVAL_MS) return;
   lastCheckedAt = Date.now();
 
-  const wallets = listWallets().filter((wallet) => wallet.autoCopy);
   for (const wallet of wallets) {
     try {
       const { transfers } = await fetchWalletTransfers(wallet.address);

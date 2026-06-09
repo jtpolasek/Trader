@@ -173,12 +173,14 @@ export default function Home() {
   const [pricesFetchedAt, setPricesFetchedAt] = useState<number | null>(null);
   const [isPricesStale, setIsPricesStale] = useState(false);
   const [autoRefreshInterval, setAutoRefreshInterval] = useState(0);
+  const [dashboardRefreshInterval, setDashboardRefreshInterval] = useState(15);
   const [lossOfferTokenAddress, setLossOfferTokenAddress] = useState("");
   const [activityContext, setActivityContext] = useState<{
     label: string;
     address: string;
     fetched: number;
     warnings: string[];
+    source: "fetched" | "cached";
   } | null>(null);
   const [activeCandidateTab, setActiveCandidateTab] = useState<CandidateTab>("actionable");
   const [extraVisibleActivity, setExtraVisibleActivity] = useState(0);
@@ -189,6 +191,7 @@ export default function Home() {
   const [paperArchives, setPaperArchives] = useState<PaperArchiveSummary[]>([]);
   const [selectedArchiveId, setSelectedArchiveId] = useState("");
   const [extraVisibleTrades, setExtraVisibleTrades] = useState(0);
+  const activityContextRef = useRef<typeof activityContext>(null);
   const fetchPricesRef = useRef<() => void>(() => {});
 
   const refresh = async () => {
@@ -240,6 +243,10 @@ export default function Home() {
   }, [data?.copySettings]);
 
   useEffect(() => {
+    activityContextRef.current = activityContext;
+  }, [activityContext]);
+
+  useEffect(() => {
     setExtraVisibleTrades(0);
   }, [data?.trades]);
 
@@ -274,6 +281,19 @@ export default function Home() {
     const id = setInterval(() => fetchPricesRef.current(), autoRefreshInterval * 1000);
     return () => clearInterval(id);
   }, [autoRefreshInterval]);
+
+  useEffect(() => {
+    if (!dashboardRefreshInterval) return;
+    const id = setInterval(() => {
+      refresh().catch(() => {});
+      refreshLedgerStatus().catch(() => {});
+      const currentActivity = activityContextRef.current;
+      if (currentActivity) {
+        refreshWalletActivity(currentActivity.address, currentActivity.label, true, true).catch(() => {});
+      }
+    }, dashboardRefreshInterval * 1000);
+    return () => clearInterval(id);
+  }, [dashboardRefreshInterval]);
 
   const selectedPosition = useMemo(
     () =>
@@ -327,19 +347,12 @@ export default function Home() {
   );
   const todayVisibleActivityCount =
     activeCandidateTab === "actionable" && candidates.length ? actionableTodayActivityCount : todayActivity.length;
-  const filteredTodayActivity = useMemo(
-    () => filteredActivity.filter((item) => localDateKey(new Date(item.timestamp)) === todayKey),
-    [filteredActivity, todayKey]
-  );
-  const olderActivity = useMemo(
-    () => filteredActivity.filter((item) => localDateKey(new Date(item.timestamp)) !== todayKey),
-    [filteredActivity, todayKey]
-  );
+  const visibleActivityLimit = 5 + extraVisibleActivity;
   const visibleActivity = useMemo(
-    () => [...filteredTodayActivity, ...olderActivity.slice(0, extraVisibleActivity)],
-    [filteredTodayActivity, olderActivity, extraVisibleActivity]
+    () => filteredActivity.slice(0, visibleActivityLimit),
+    [filteredActivity, visibleActivityLimit]
   );
-  const remainingOlderActivity = Math.max(0, olderActivity.length - extraVisibleActivity);
+  const remainingOlderActivity = Math.max(0, filteredActivity.length - visibleActivity.length);
   const todayTrades = useMemo(
     () => allTrades.filter((trade) => localDateKey(new Date(trade.createdAt)) === todayKey),
     [allTrades, todayKey]
@@ -377,26 +390,37 @@ export default function Home() {
     }
   }
 
+  async function refreshWalletActivity(address: string, label: string, cached = false, quiet = false) {
+    try {
+      const response = await fetch(`/api/wallets/${address}/activity${cached ? "?cached=1" : ""}`, { cache: "no-store" });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error ?? "Could not fetch activity.");
+      setActivity(payload.activity);
+      setCandidates(Array.isArray(payload.candidates) ? payload.candidates : []);
+      setActivityContext({
+        label,
+        address,
+        fetched: payload.fetched,
+        warnings: Array.isArray(payload.warnings) ? payload.warnings : [],
+        source: payload.source === "cached" ? "cached" : "fetched"
+      });
+      return payload as { fetched: number };
+    } catch (err) {
+      if (!quiet) setError(err instanceof Error ? err.message : "Could not fetch activity.");
+      throw err;
+    }
+  }
+
   async function fetchActivity(wallet: Wallet) {
     const address = wallet.address;
     setBusy(address);
     setError("");
     setMessage("");
     try {
-      const response = await fetch(`/api/wallets/${address}/activity`, { cache: "no-store" });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error ?? "Could not fetch activity.");
-      setActivity(payload.activity);
-      setCandidates(Array.isArray(payload.candidates) ? payload.candidates : []);
-      setActivityContext({
-        label: wallet.label,
-        address,
-        fetched: payload.fetched,
-        warnings: Array.isArray(payload.warnings) ? payload.warnings : []
-      });
-      setMessage(`Fetched ${payload.fetched} wallet transfers.`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not fetch activity.");
+      const payload = await refreshWalletActivity(address, wallet.label, false);
+      setMessage(`Fetched ${payload?.fetched ?? 0} wallet transfers.`);
+    } catch {
+      // Error already surfaced by refreshWalletActivity.
     } finally {
       setBusy("");
     }
@@ -1028,6 +1052,18 @@ export default function Home() {
           <RefreshCw size={18} />
           Refresh
         </button>
+        <select
+          className="archive-select"
+          value={dashboardRefreshInterval}
+          onChange={(event) => setDashboardRefreshInterval(Number(event.target.value))}
+          title="Auto-refresh dashboard data"
+        >
+          <option value={0}>Auto-refresh off</option>
+          <option value={15}>15 sec</option>
+          <option value={30}>30 sec</option>
+          <option value={60}>1 min</option>
+          <option value={300}>5 min</option>
+        </select>
         <input
           ref={importInputRef}
           type="file"
@@ -1330,14 +1366,20 @@ export default function Home() {
                     value={formatUsd(preview.side === "buy" ? preview.totalCostUsd : preview.sellProceedsUsd)}
                   />
                 </div>
-                <p className="subtle">
-                  Explicit fees are gas plus any provider-reported 0x/integrator fee. Price impact + pool fees is inferred from the gap between this trade quote and a small reference quote, so it may also absorb route costs embedded in the quoted output.
-                </p>
-                {getValuedFeeUsd(preview.quoteSnapshot) > 0 ? (
+                <details className="compact-disclosure">
+                  <summary>Cost methodology</summary>
                   <p className="subtle">
-                    0x fee includes {formatUsd(getValuedFeeUsd(preview.quoteSnapshot))} valued from a non-USDC token.
+                    Explicit fees are gas plus any provider-reported 0x/integrator fee. Price impact + pool fees is
+                    inferred from the gap between this trade quote and a small reference quote, so it may also absorb
+                    route costs embedded in the quoted output.
                   </p>
-                ) : null}
+                  {getValuedFeeUsd(preview.quoteSnapshot) > 0 ? (
+                    <p className="subtle">
+                      0x fee includes {formatUsd(getValuedFeeUsd(preview.quoteSnapshot))} valued from a non-USDC
+                      token.
+                    </p>
+                  ) : null}
+                </details>
                 {preview.warnings.map((warning) => (
                   <div className="alert" key={warning}>
                     {warning}
@@ -1352,12 +1394,12 @@ export default function Home() {
             ) : null}
           </div>
 
-          <div className="panel">
-            <div className="row">
+          <details className="panel collapsible-panel">
+            <summary className="row collapsible-summary">
               <h2>Copy settings</h2>
               <span className="pill">{copySettingsForm.mode === "fixedUsd" ? "Fixed USD" : "Percent"}</span>
-            </div>
-            <form className="stack" onSubmit={saveCopySettings}>
+            </summary>
+            <form className="stack collapsible-body" onSubmit={saveCopySettings}>
               <div className="form-grid">
                 <div className="field">
                   <label htmlFor="autoCopy">Auto-copy</label>
@@ -1426,6 +1468,13 @@ export default function Home() {
                       setCopySettingsForm({ ...copySettingsForm, percentOfSource: event.target.value })
                     }
                   />
+                  <details className="compact-disclosure">
+                    <summary>What this uses</summary>
+                    <p className="subtle">
+                      In percent mode, the app copies this share of the source wallet&apos;s trade size. For buys, it
+                      uses the source trade&apos;s USD notional when available, or converts ETH/WETH to USD first.
+                    </p>
+                  </details>
                 </div>
                 <div className="field">
                   <label htmlFor="maxTradeUsd">Max trade USD</label>
@@ -1488,15 +1537,15 @@ export default function Home() {
                 Save settings
               </button>
             </form>
-          </div>
+          </details>
 
-          <div className="panel">
-            <div className="row">
+          <details className="panel collapsible-panel">
+            <summary className="row collapsible-summary">
               <h2>Auto-exit rules</h2>
               <span className="pill">{exitRules.enabled ? "On" : "Off"}</span>
-            </div>
+            </summary>
             <form
-              className="stack"
+              className="stack collapsible-body"
               onSubmit={async (e) => {
                 e.preventDefault();
                 const res = await fetch("/api/settings/exit-rules", {
@@ -1572,14 +1621,14 @@ export default function Home() {
                 Save auto-exit rules
               </button>
             </form>
-          </div>
+          </details>
 
-          <div className="panel">
-            <div className="row">
+          <details className="panel collapsible-panel">
+            <summary className="row collapsible-summary">
               <h2>Watchlist</h2>
               <span className="pill">{data?.wallets.length ?? 0} wallets</span>
-            </div>
-            <form className="stack" onSubmit={submitWallet}>
+            </summary>
+            <form className="stack collapsible-body" onSubmit={submitWallet}>
               <div className="form-grid">
                 <div className="field full">
                   <label htmlFor="walletAddress">Wallet address</label>
@@ -1622,47 +1671,131 @@ export default function Home() {
                 Add wallet
               </button>
             </form>
+          </details>
+          {data && !data.copySettings.autoCopy && data.wallets.some((wallet) => wallet.autoCopy) ? (
+            <p className="subtle">
+              Global auto-copy is off, so per-wallet Auto-copy toggles will not execute trades until it is enabled in Copy settings.
+            </p>
+          ) : null}
+          <div className="list">
+            {data?.wallets.map((wallet) => (
+              <article className="card wallet-card" key={wallet.address}>
+                <div className="row">
+                  <div>
+                    <h3>{wallet.label}</h3>
+                    <p className="mono subtle">{wallet.address}</p>
+                    {wallet.notes ? <p>{wallet.notes}</p> : null}
+                  </div>
+                  <div className="row compact wallet-actions">
+                    <label className="subtle" title="Auto-copy decoded buys from this wallet">
+                      <input
+                        type="checkbox"
+                        checked={wallet.autoCopy === true}
+                        disabled={busy === `autocopy-${wallet.address}`}
+                        onChange={(e) => toggleWalletAutoCopy(wallet, e.target.checked)}
+                      />{" "}
+                      Auto-copy
+                    </label>
+                    <button
+                      className="button secondary"
+                      onClick={() => fetchActivity(wallet)}
+                      disabled={busy === wallet.address || busy === `delete-${wallet.address}`}
+                      title="Fetch wallet activity"
+                    >
+                      {busy === wallet.address ? <Loader2 size={18} /> : <WalletCards size={18} />}
+                      Activity
+                    </button>
+                    <button
+                      className="icon-button danger"
+                      onClick={() => deleteWatchedWallet(wallet)}
+                      disabled={busy === wallet.address || busy === `delete-${wallet.address}`}
+                      title="Delete wallet"
+                    >
+                      {busy === `delete-${wallet.address}` ? <Loader2 size={18} /> : <Trash2 size={18} />}
+                    </button>
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
+
+          <div className="panel">
+            <div className="row">
+              <h2>Wallet activity</h2>
+              <span className="pill">{candidates.length} candidates</span>
+              <span className="pill">{todayVisibleActivityCount} today</span>
+            </div>
+            <CandidateStatusSummary stats={candidateStats} />
+            {activityContext ? (
+              <p className="subtle">
+                {activityContext.source === "cached"
+                  ? `Showing ${activityContext.fetched} cached ETH/ERC-20 transfers for ${activityContext.label}.`
+                  : `${activityContext.label} fetched ${activityContext.fetched} ETH/ERC-20 transfers from Ethereum and Base.`}
+              </p>
+            ) : null}
+            {activityContext?.warnings?.length ? (
+              <div className="notice">
+                {activityContext.warnings.map((warning) => (
+                  <p key={warning}>{warning}</p>
+                ))}
+              </div>
+            ) : null}
+            {candidates.length ? (
+              <CandidateList
+                candidates={candidates}
+                copyResults={copyResults}
+                trades={data?.trades ?? []}
+                busy={busy}
+                copyCandidate={copyCandidate}
+                activeTab={activeCandidateTab}
+                setActiveTab={setActiveCandidateTab}
+              />
+            ) : null}
             <div className="list">
-              {data?.wallets.map((wallet) => (
-                <article className="card" key={wallet.address}>
+              {visibleActivity.map((item) => (
+                <article className="card" key={item.id}>
                   <div className="row">
                     <div>
-                      <h3>{wallet.label}</h3>
-                      <p className="mono subtle">{wallet.address}</p>
-                      {wallet.notes ? <p>{wallet.notes}</p> : null}
-                    </div>
-                    <div className="row compact">
-                      <label className="subtle" title="Auto-copy decoded buys from this wallet (requires Auto-copy enabled in copy settings)">
-                        <input
-                          type="checkbox"
-                          checked={wallet.autoCopy === true}
-                          disabled={busy === `autocopy-${wallet.address}`}
-                          onChange={(e) => toggleWalletAutoCopy(wallet, e.target.checked)}
-                        />{" "}
-                        Auto-copy
-                      </label>
-                      <button
-                        className="button secondary"
-                        onClick={() => fetchActivity(wallet)}
-                        disabled={busy === wallet.address || busy === `delete-${wallet.address}`}
-                        title="Fetch wallet activity"
-                      >
-                        {busy === wallet.address ? <Loader2 size={18} /> : <WalletCards size={18} />}
-                        Activity
-                      </button>
-                      <button
-                        className="icon-button danger"
-                        onClick={() => deleteWatchedWallet(wallet)}
-                        disabled={busy === wallet.address || busy === `delete-${wallet.address}`}
-                        title="Delete wallet"
-                      >
-                        {busy === `delete-${wallet.address}` ? <Loader2 size={18} /> : <Trash2 size={18} />}
-                      </button>
+                      <div className="activity-meta">
+                        <TimestampLine timestamp={item.timestamp} compact />
+                        <span className={activityTypeClass(item)}>{activityTypeLabel(item)}</span>
+                        <span className="pill">{item.chainName}</span>
+                        <span className="pill">{item.category}</span>
+                      </div>
+                      <h3>
+                        {item.asset} {formatNumber(item.value, 4)}
+                      </h3>
+                      <ExplorerLink chainId={item.chainId} hash={item.hash} />
                     </div>
                   </div>
                 </article>
               ))}
+              {!activity.length ? (
+                <p className="subtle">
+                  {activityContext
+                    ? "No matching inbound or outbound ETH/ERC-20 transfers were returned for this wallet on Ethereum or Base."
+                    : "Fetch a watched wallet to cache recent transfer activity."}
+                </p>
+              ) : null}
+              {activity.length > 0 && !visibleActivity.length ? (
+                <p className="subtle">
+                  {activeCandidateTab === "actionable" && candidates.length && !filteredActivity.length
+                    ? "No actionable wallet activity is visible right now. Open All activity to inspect the rest."
+                    : activeCandidateTab === "actionable" && candidates.length
+                    ? "No actionable transactions yet today. Use show more to expand older wallet activity."
+                    : "No transactions yet today. Use show more to expand older wallet activity."}
+                </p>
+              ) : null}
             </div>
+            {remainingOlderActivity > 0 ? (
+              <button
+                type="button"
+                className="button secondary show-more-button"
+                onClick={() => setExtraVisibleActivity((count) => count + 5)}
+              >
+                Show {Math.min(5, remainingOlderActivity)} more ({remainingOlderActivity} more)
+              </button>
+            ) : null}
           </div>
         </div>
 
@@ -1719,6 +1852,7 @@ export default function Home() {
                   const unrealizedPnlUsd = currentPrice !== undefined
                     ? (currentPrice - position.averageEntryUsd) * position.quantity
                     : undefined;
+                  const copySource = getPositionCopySource(position, data.trades, data.wallets);
                   return (
                   <article className="card" key={position.tokenAddress}>
                     <div className="row">
@@ -1726,6 +1860,18 @@ export default function Home() {
                         <h3>
                           {position.symbol} <span className="subtle">{position.name}</span>
                         </h3>
+                        {copySource ? (
+                          <p className="subtle">
+                            Copied from{" "}
+                            {copySource.label ? (
+                              <span title={copySource.address}>{copySource.label}</span>
+                            ) : (
+                              <span className="mono" title={copySource.address}>
+                                {shortAddress(copySource.address)}
+                              </span>
+                            )}
+                          </p>
+                        ) : null}
                         <p>
                           <a
                             className="hash-link mono"
@@ -1774,46 +1920,49 @@ export default function Home() {
                         </button>
                       </div>
                     </div>
-                    <div className="grid dashboard-grid">
-                      <Mini label="Quantity" value={formatNumber(position.quantity, 6)} />
-                      <Mini label="Avg entry" value={formatUsdPrice(position.averageEntryUsd)} />
-                      <Mini label="Cost basis" value={formatUsd(position.costBasisUsd)} />
-                      <Mini label="Fees" value={formatUsd(position.feesPaidUsd)} />
-                      <Mini
-                        label="Current value"
-                        value={currentValueUsd !== undefined ? formatUsd(currentValueUsd) : "-"}
-                      />
-                      <UnrealizedPnl value={unrealizedPnlUsd} />
-                    </div>
-                    {(() => {
-                      const failure = exitFailures.find((f) => f.tokenAddress === position.tokenAddress);
-                      if (failure) {
-                        return (
-                          <div className="exit-failure-alert">
-                            <span className="bad">Auto-exit failed: {failure.reason}</span>
-                            {" "}
-                            <button
-                              type="button"
-                              onClick={async () => {
-                                const res = await fetch(`/api/settings/exit-failures/${position.tokenAddress}`, { method: "DELETE" });
-                                if (res.ok) {
-                                  setExitFailures((prev) => prev.filter((f) => f.tokenAddress !== position.tokenAddress));
-                                }
-                              }}
-                            >
-                              Dismiss
-                            </button>
-                          </div>
-                        );
-                      }
-                      if (exitRules.enabled && (exitRules.takeProfitPct !== null || exitRules.stopLossPct !== null)) {
-                        const parts: string[] = [];
-                        if (exitRules.takeProfitPct !== null) parts.push(`TP +${exitRules.takeProfitPct}%`);
-                        if (exitRules.stopLossPct !== null) parts.push(`SL −${exitRules.stopLossPct}%`);
-                        return <div className="subtle">Watching: {parts.join(" / ")}</div>;
-                      }
-                      return null;
-                    })()}
+                <div className="grid dashboard-grid">
+                  <Mini label="Quantity" value={formatNumber(position.quantity, 6)} />
+                  <Mini label="Avg entry" value={formatUsdPrice(position.averageEntryUsd)} />
+                  <Mini label="Cost basis" value={formatUsd(position.costBasisUsd)} />
+                  <Mini label="Fees" value={formatUsd(position.feesPaidUsd)} />
+                  <Mini
+                    label="Current value"
+                    value={currentValueUsd !== undefined ? formatUsd(currentValueUsd) : "-"}
+                  />
+                  <UnrealizedPnl value={unrealizedPnlUsd} />
+                </div>
+                    <details className="compact-disclosure">
+                      <summary>Exit rules</summary>
+                      {(() => {
+                        const failure = exitFailures.find((f) => f.tokenAddress === position.tokenAddress);
+                        if (failure) {
+                          return (
+                            <div className="exit-failure-alert">
+                              <span className="bad">Auto-exit failed: {failure.reason}</span>
+                              {" "}
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  const res = await fetch(`/api/settings/exit-failures/${position.tokenAddress}`, { method: "DELETE" });
+                                  if (res.ok) {
+                                    setExitFailures((prev) => prev.filter((f) => f.tokenAddress !== position.tokenAddress));
+                                  }
+                                }}
+                              >
+                                Dismiss
+                              </button>
+                            </div>
+                          );
+                        }
+                        if (exitRules.enabled && (exitRules.takeProfitPct !== null || exitRules.stopLossPct !== null)) {
+                          const parts: string[] = [];
+                          if (exitRules.takeProfitPct !== null) parts.push(`TP +${exitRules.takeProfitPct}%`);
+                          if (exitRules.stopLossPct !== null) parts.push(`SL −${exitRules.stopLossPct}%`);
+                          return <div className="subtle">Watching: {parts.join(" / ")}</div>;
+                        }
+                        return <div className="subtle">No exit rules are currently active for this position.</div>;
+                      })()}
+                    </details>
                   </article>
                   );
                 })
@@ -1821,151 +1970,88 @@ export default function Home() {
                 <p className="subtle">Open positions will appear after your first paper buy.</p>
               )}
             </div>
-          </div>
 
-          <div className="panel">
-            <div className="row">
-              <h2>Wallet activity</h2>
-              <span className="pill">{candidates.length} candidates</span>
-              <span className="pill">{todayVisibleActivityCount} today</span>
-            </div>
-            <CandidateStatusSummary stats={candidateStats} />
-            {activityContext ? (
-              <p className="subtle">
-                {activityContext.label} fetched {activityContext.fetched} ETH/ERC-20 transfers from Ethereum and Base.
-              </p>
-            ) : null}
-            {activityContext?.warnings?.length ? (
-              <div className="notice">
-                {activityContext.warnings.map((warning) => (
-                  <p key={warning}>{warning}</p>
-                ))}
+            <div className="panel trade-panel">
+              <div className="row">
+                <h2>Past trades</h2>
+                <span className="pill">{todayTrades.length} today</span>
+                <span className="pill">
+                  {stats?.wins ?? 0}W / {stats?.losses ?? 0}L
+                </span>
+                <span className="pill">{allTrades.length} total</span>
               </div>
-            ) : null}
-            {candidates.length ? (
-              <CandidateList
-                candidates={candidates}
-                copyResults={copyResults}
-                busy={busy}
-                copyCandidate={copyCandidate}
-                activeTab={activeCandidateTab}
-                setActiveTab={setActiveCandidateTab}
-              />
-            ) : null}
-            <div className="list">
-              {visibleActivity.map((item) => (
-                <article className="card" key={item.id}>
-                  <div className="row">
-                    <div>
-                      <div className="activity-meta">
-                        <TimestampLine timestamp={item.timestamp} compact />
-                        <span className={activityTypeClass(item)}>{activityTypeLabel(item)}</span>
-                        <span className="pill">{item.chainName}</span>
-                        <span className="pill">{item.category}</span>
-                      </div>
-                      <h3>
-                        {item.asset} {formatNumber(item.value, 4)}
-                      </h3>
-                      <ExplorerLink chainId={item.chainId} hash={item.hash} />
-                    </div>
-                  </div>
-                </article>
-              ))}
-              {!activity.length ? (
-                <p className="subtle">
-                  {activityContext
-                    ? "No matching inbound or outbound ETH/ERC-20 transfers were returned for this wallet on Ethereum or Base."
-                    : "Fetch a watched wallet to cache recent transfer activity."}
-                </p>
-              ) : null}
-              {activity.length > 0 && !visibleActivity.length ? (
-                <p className="subtle">
-                  {activeCandidateTab === "actionable" && candidates.length && !filteredActivity.length
-                    ? "No actionable wallet activity is visible right now. Open All activity to inspect the rest."
-                    : activeCandidateTab === "actionable" && candidates.length
-                    ? "No actionable transactions yet today. Use show more to expand older wallet activity."
-                    : "No transactions yet today. Use show more to expand older wallet activity."}
-                </p>
-              ) : null}
-            </div>
-            {remainingOlderActivity > 0 ? (
-              <button
-                type="button"
-                className="button secondary show-more-button"
-                onClick={() => setExtraVisibleActivity((count) => count + 5)}
-              >
-                Show {Math.min(5, remainingOlderActivity)} more ({remainingOlderActivity} older)
-              </button>
-            ) : null}
-          </div>
-
-          <div className="panel">
-            <div className="row">
-              <h2>Trade history</h2>
-              <span className="pill">{todayTrades.length} today</span>
-              <span className="pill">
-                {stats?.wins ?? 0}W / {stats?.losses ?? 0}L
-              </span>
-            </div>
-            {allTrades.length ? (
-              <>
-                {visibleTrades.length ? (
-                  <div className="table-wrap">
-                    <table>
-                      <thead>
-                      <tr>
-                        <th>Time</th>
-                        <th>Side</th>
-                        <th>Token</th>
-                        <th>Signals</th>
-                        <th>Spent</th>
-                        <th>Price</th>
-                        <th>Costs</th>
-                        <th>PnL</th>
-                        <th>Net return</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {visibleTrades.map((trade) => (
-                        <tr key={trade.id}>
-                            <td>{new Date(trade.createdAt).toLocaleString()}</td>
+              {allTrades.length ? (
+                <>
+                  {visibleTrades.length ? (
+                    <div className="table-wrap">
+                      <table className="trade-table">
+                        <thead>
+                          <tr>
+                            <th>Time</th>
+                            <th>Side</th>
+                            <th>Token</th>
+                            <th>Signals</th>
+                            <th>Spent</th>
+                            <th>Price</th>
+                            <th>Costs</th>
+                            <th>PnL / %</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                        {visibleTrades.map((trade) => (
+                          <tr key={trade.id}>
+                            <td>{formatTradeTimestamp(trade.createdAt)}</td>
                             <td>
                               <span className={trade.side === "buy" ? "pill good" : "pill warn"}>{trade.side}</span>
                             </td>
-                            <td>{trade.symbol}</td>
-                          <td>
-                            <TradeSignals trade={trade} />
-                          </td>
-                          <td>{formatUsd(tradeSpentUsd(trade))}</td>
-                          <td>{formatUsdPrice(trade.priceUsd)}</td>
-                          <td>
-                            <FeeBreakdown trade={trade} />
-                          </td>
-                          <td>{formatUsd(trade.realizedPnlUsd)}</td>
-                          <td className={tradeReturnClassName(trade)}>
-                            {formatNullablePercent(tradeReturnPercent(trade))}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                ) : (
-                  <p className="subtle">No trades yet today. Use show more to expand older history.</p>
-                )}
-                {remainingOlderTrades > 0 ? (
-                  <button
-                    type="button"
-                    className="button secondary show-more-button"
-                    onClick={() => setExtraVisibleTrades((count) => count + 5)}
-                  >
-                    Show {Math.min(5, remainingOlderTrades)} more ({remainingOlderTrades} older)
-                  </button>
-                ) : null}
-              </>
-            ) : (
-              <p className="subtle">Trades will appear here after your first paper execution.</p>
-            )}
+                            <td>
+                              <a
+                                href={gmgnTokenUrl(trade.chainId, trade.tokenAddress)}
+                                target="_blank"
+                                rel="noreferrer"
+                                title="Open token chart on GMGN"
+                              >
+                                {trade.symbol}
+                              </a>
+                            </td>
+                            <td>
+                              <TradeSignals trade={trade} />
+                            </td>
+                            <td>{formatUsd(tradeSpentUsd(trade))}</td>
+                            <td>{formatUsdPrice(trade.priceUsd)}</td>
+                            <td>
+                              <FeeBreakdown trade={trade} />
+                            </td>
+                            <td>
+                              <span className={trade.realizedPnlUsd >= 0 ? "good" : "bad"}>
+                                {formatUsd(trade.realizedPnlUsd)}
+                              </span>{" "}
+                              <span className={tradeReturnClassName(trade)} title="Percent gain or loss on the closed trade">
+                                {formatNullablePercent(tradeReturnPercent(trade))}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <p className="subtle">No trades yet today. Use show more to expand older history.</p>
+                  )}
+                  {remainingOlderTrades > 0 ? (
+                    <button
+                      type="button"
+                      className="button secondary show-more-button"
+                      onClick={() => setExtraVisibleTrades((count) => count + 5)}
+                    >
+                      Show {Math.min(5, remainingOlderTrades)} more ({remainingOlderTrades} older)
+                    </button>
+                  ) : null}
+                </>
+              ) : (
+                <p className="subtle">Trades will appear here after your first paper execution.</p>
+              )}
+            </div>
           </div>
         </div>
       </section>
@@ -2142,6 +2228,24 @@ function candidateLastCopyResult(candidate: TradeCandidate): CopyResult | null {
   };
 }
 
+function hydrateCopyResult(result: CopyResult | null, trades: Trade[]): CopyResult | null {
+  if (!result || result.status !== "copied" || !result.tradeId) return result;
+  const trade = trades.find((item) => item.id === result.tradeId);
+  if (!trade) return result;
+
+  return {
+    ...result,
+    side: trade.side,
+    tokenSymbol: trade.symbol || result.tokenSymbol,
+    tokenAddress: trade.tokenAddress,
+    quantity: trade.quantity,
+    notionalUsd: trade.notionalUsd,
+    totalFeesUsd: trade.gasUsd + trade.slippageUsd + trade.dexFeeUsd,
+    totalCostUsd: trade.totalCostUsd,
+    sellProceedsUsd: trade.side === "sell" ? trade.notionalUsd - (trade.gasUsd + trade.slippageUsd + trade.dexFeeUsd) : result.sellProceedsUsd
+  };
+}
+
 function candidateCopyButtonLabel(candidate: TradeCandidate, copyResult?: CopyResult) {
   const lastStatus = copyResult?.status ?? candidate.lastCopyStatus;
   return lastStatus === "failed" ? "Retry" : "Copy";
@@ -2208,6 +2312,7 @@ function candidateTab(candidate: TradeCandidate): "actionable" | "review" {
 function CandidateList({
   candidates,
   copyResults,
+  trades,
   busy,
   copyCandidate,
   activeTab,
@@ -2215,6 +2320,7 @@ function CandidateList({
 }: {
   candidates: TradeCandidate[];
   copyResults: Record<string, CopyResult>;
+  trades: Trade[];
   busy: string;
   copyCandidate: (candidate: TradeCandidate) => void;
   activeTab: CandidateTab;
@@ -2255,7 +2361,7 @@ function CandidateList({
           const isCopying = busy === `copy-${candidate.id}`;
           const visibleCopyResult = isCopying
             ? null
-            : copyResults[candidate.id] ?? candidateLastCopyResult(candidate);
+            : hydrateCopyResult(copyResults[candidate.id] ?? candidateLastCopyResult(candidate), trades);
           const trust = classifyCandidateTrust(candidate);
           return (
             <article className="candidate" key={candidate.id}>
@@ -2499,6 +2605,36 @@ function formatTokenResult(token: PortfolioAnalytics["bestToken"] | undefined) {
   return `${token.symbol} ${formatUsd(token.realizedPnlUsd)}`;
 }
 
+function getPositionCopySource(
+  position: Position,
+  trades: Trade[],
+  wallets: Wallet[]
+): { address: string; label: string } | null {
+  const sourceTrade = trades.find((trade) => {
+    if (trade.side !== "buy" || trade.tokenAddress !== position.tokenAddress || trade.chainId !== position.chainId) {
+      return false;
+    }
+    const snapshot = parseSnapshot(trade.quoteSnapshot);
+    const copiedFrom = snapshot.copiedFrom;
+    return Boolean(copiedFrom && typeof copiedFrom === "object" && !Array.isArray(copiedFrom) && typeof (copiedFrom as Record<string, unknown>).walletAddress === "string");
+  });
+
+  if (!sourceTrade) return null;
+
+  const snapshot = parseSnapshot(sourceTrade.quoteSnapshot);
+  const copiedFrom = snapshot.copiedFrom as Record<string, unknown> | undefined;
+  const address = typeof copiedFrom?.walletAddress === "string" ? copiedFrom.walletAddress : "";
+  if (!address) return null;
+
+  const label = wallets.find((wallet) => wallet.address.toLowerCase() === address.toLowerCase())?.label ?? "";
+  return { address, label };
+}
+
+function shortAddress(address: string) {
+  if (address.length <= 12) return address;
+  return `${address.slice(0, 6)}...${address.slice(-4)}`;
+}
+
 function ExplorerLink({ chainId, hash }: { chainId: number; hash: string }) {
   const href = explorerTxUrl(chainId, hash);
   if (!href) return <p className="mono subtle">{hash}</p>;
@@ -2568,6 +2704,17 @@ function formatLocalTimestamp(timestamp: string) {
     minute: "2-digit",
     second: "2-digit",
     timeZoneName: "short"
+  }).format(date)}`;
+}
+
+function formatTradeTimestamp(timestamp: string) {
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return "Unknown time";
+  return `${formatRelativeTime(date)} | ${new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit"
   }).format(date)}`;
 }
 

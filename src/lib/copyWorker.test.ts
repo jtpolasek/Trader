@@ -123,11 +123,22 @@ describe("runCopyCheck", () => {
     vi.mocked(getNativeUsdPrice).mockResolvedValue(2500);
   });
 
-  it("returns early when autoCopy is disabled", async () => {
+  it("returns early when global autoCopy is disabled and no wallets are enabled", async () => {
     updateCopySettings({ ...getCopySettings(), autoCopy: false });
-    seedWallet();
+    seedWallet(false);
     seedDecodedBuyCandidate("01");
     await runCopyCheck();
+    expect(buildQuotePreview).not.toHaveBeenCalled();
+  });
+
+  it("returns early when global autoCopy is disabled even if a wallet autoCopy flag is enabled", async () => {
+    updateCopySettings({ ...getCopySettings(), autoCopy: false, fixedUsd: 100 });
+    seedWallet(true);
+    seedDecodedBuyCandidate("05");
+
+    await runCopyCheck();
+
+    expect(fetchWalletTransfers).not.toHaveBeenCalled();
     expect(buildQuotePreview).not.toHaveBeenCalled();
   });
 

@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { normalizeAddress, normalizeAddressInput } from "@/lib/money";
-import { deleteWallet, listWallets, setWalletAutoCopy, upsertWallet } from "@/lib/repositories";
+import {
+  deleteWallet,
+  listWallets,
+  setWalletAutoCopy,
+  upsertWallet
+} from "@/lib/repositories";
 
 const schema = z.object({
   address: z.string(),

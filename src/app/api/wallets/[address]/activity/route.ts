@@ -8,6 +8,18 @@ export async function GET(_request: Request, context: { params: Promise<{ addres
   try {
     const { address } = await context.params;
     const walletAddress = normalizeAddress(address);
+    const url = new URL(_request.url);
+    const cached = url.searchParams.get("cached") === "1";
+    if (cached) {
+      const activity = listWalletActivity(walletAddress);
+      return NextResponse.json({
+        activity,
+        candidates: listTradeCandidates(walletAddress),
+        fetched: activity.length,
+        warnings: [],
+        source: "cached"
+      });
+    }
     const { transfers, warnings } = await fetchWalletTransfers(walletAddress);
     insertWalletActivity(transfers);
     const activity = listWalletActivity(walletAddress);
@@ -16,7 +28,8 @@ export async function GET(_request: Request, context: { params: Promise<{ addres
       activity,
       candidates: listTradeCandidates(walletAddress),
       fetched: transfers.length,
-      warnings
+      warnings,
+      source: "fetched"
     });
   } catch (error) {
     return NextResponse.json(
