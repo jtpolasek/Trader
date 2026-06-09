@@ -5,6 +5,7 @@ export type Wallet = {
   label: string;
   notes: string;
   gmgnUrl: string;
+  autoCopy: boolean;
   createdAt: string;
 };
 

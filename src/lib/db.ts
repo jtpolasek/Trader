@@ -177,6 +177,7 @@ function migrate(database: DatabaseSync) {
   addColumnIfMissing(database, "trade_candidates", "last_copy_reason", "TEXT NOT NULL DEFAULT ''");
   addColumnIfMissing(database, "trade_candidates", "last_copy_trade_id", "TEXT NOT NULL DEFAULT ''");
   addColumnIfMissing(database, "trade_candidates", "last_copy_at", "TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing(database, "wallets", "auto_copy", "INTEGER NOT NULL DEFAULT 0");
   ensureUniqueLedgerTradeIndex(database);
 
   const now = new Date().toISOString();

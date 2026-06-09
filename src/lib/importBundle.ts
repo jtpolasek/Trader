@@ -5,6 +5,7 @@ const walletSchema = z.object({
   label: z.string(),
   notes: z.string(),
   gmgnUrl: z.string(),
+  autoCopy: z.boolean().optional().default(false),
   createdAt: z.string()
 });
 

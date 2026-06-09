@@ -197,23 +197,33 @@ export function listWallets(): Wallet[] {
     label: String(row.label),
     notes: String(row.notes),
     gmgnUrl: String(row.gmgn_url),
+    autoCopy: Number(row.auto_copy) === 1,
     createdAt: String(row.created_at)
   }));
 }
 
-export function upsertWallet(input: Omit<Wallet, "createdAt">) {
+export function upsertWallet(input: Omit<Wallet, "createdAt" | "autoCopy"> & { autoCopy?: boolean }) {
   const createdAt = now();
+  const autoCopy = input.autoCopy === true;
   getDb()
     .prepare(
-      `INSERT INTO wallets (address, label, notes, gmgn_url, created_at)
-       VALUES (?, ?, ?, ?, ?)
+      `INSERT INTO wallets (address, label, notes, gmgn_url, auto_copy, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT(address) DO UPDATE SET
         label = excluded.label,
         notes = excluded.notes,
-        gmgn_url = excluded.gmgn_url`
+        gmgn_url = excluded.gmgn_url,
+        auto_copy = excluded.auto_copy`
     )
-    .run(input.address, input.label, input.notes, input.gmgnUrl, createdAt);
-  return { ...input, createdAt };
+    .run(input.address, input.label, input.notes, input.gmgnUrl, autoCopy ? 1 : 0, createdAt);
+  return { ...input, autoCopy, createdAt };
+}
+
+export function setWalletAutoCopy(address: string, autoCopy: boolean): boolean {
+  const result = getDb()
+    .prepare("UPDATE wallets SET auto_copy = ? WHERE address = ?")
+    .run(autoCopy ? 1 : 0, address);
+  return result.changes > 0;
 }
 
 export function deleteWallet(address: string) {
@@ -468,10 +478,10 @@ export function importLocalData(bundle: ImportBundle): { portfolio: Portfolio; s
     db.prepare("DELETE FROM settings").run();
 
     const insertWallet = db.prepare(
-      "INSERT INTO wallets (address, label, notes, gmgn_url, created_at) VALUES (?, ?, ?, ?, ?)"
+      "INSERT INTO wallets (address, label, notes, gmgn_url, auto_copy, created_at) VALUES (?, ?, ?, ?, ?, ?)"
     );
     for (const w of bundle.wallets) {
-      insertWallet.run(w.address, w.label, w.notes, w.gmgnUrl, w.createdAt);
+      insertWallet.run(w.address, w.label, w.notes, w.gmgnUrl, w.autoCopy === true ? 1 : 0, w.createdAt);
     }
 
     const insertTokenRow = db.prepare(

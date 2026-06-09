@@ -80,8 +80,8 @@ import {
 const TEST_WALLET = "0x1234560000000000000000000000000000000001";
 const TEST_TOKEN = "0x1234560000000000000000000000000000000002";
 
-function seedWallet() {
-  upsertWallet({ address: TEST_WALLET, label: "Test", notes: "", gmgnUrl: "" });
+function seedWallet(autoCopy = true) {
+  upsertWallet({ address: TEST_WALLET, label: "Test", notes: "", gmgnUrl: "", autoCopy });
 }
 
 function seedDecodedBuyCandidate(hashSuffix: string, tokenAddress = TEST_TOKEN): string {
@@ -128,6 +128,15 @@ describe("runCopyCheck", () => {
     seedWallet();
     seedDecodedBuyCandidate("01");
     await runCopyCheck();
+    expect(buildQuotePreview).not.toHaveBeenCalled();
+  });
+
+  it("skips wallets whose autoCopy flag is off", async () => {
+    updateCopySettings({ ...getCopySettings(), autoCopy: true });
+    seedWallet(false);
+    seedDecodedBuyCandidate("00");
+    await runCopyCheck();
+    expect(fetchWalletTransfers).not.toHaveBeenCalled();
     expect(buildQuotePreview).not.toHaveBeenCalled();
   });
 

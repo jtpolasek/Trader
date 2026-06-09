@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { normalizeAddress, normalizeAddressInput } from "@/lib/money";
-import { deleteWallet, listWallets, upsertWallet } from "@/lib/repositories";
+import { deleteWallet, listWallets, setWalletAutoCopy, upsertWallet } from "@/lib/repositories";
 
 const schema = z.object({
   address: z.string(),
@@ -41,6 +41,22 @@ function isGmgnUrl(value: string) {
     return url.hostname === "gmgn.ai" || url.hostname.endsWith(".gmgn.ai");
   } catch {
     return false;
+  }
+}
+
+export async function PATCH(request: Request) {
+  try {
+    const body = z.object({ address: z.string(), autoCopy: z.boolean() }).parse(await request.json());
+    const address = normalizeAddress(body.address);
+    if (!setWalletAutoCopy(address, body.autoCopy)) {
+      return NextResponse.json({ error: "Wallet was not found." }, { status: 404 });
+    }
+    return NextResponse.json({ address, autoCopy: body.autoCopy });
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Could not update wallet." },
+      { status: 400 }
+    );
   }
 }
 

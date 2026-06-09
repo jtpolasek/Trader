@@ -42,7 +42,7 @@ export async function runCopyCheck(): Promise<void> {
   if (Date.now() - lastCheckedAt < POLL_INTERVAL_MS) return;
   lastCheckedAt = Date.now();
 
-  const wallets = listWallets();
+  const wallets = listWallets().filter((wallet) => wallet.autoCopy);
   for (const wallet of wallets) {
     try {
       const { transfers } = await fetchWalletTransfers(wallet.address);

@@ -402,6 +402,25 @@ export default function Home() {
     }
   }
 
+  async function toggleWalletAutoCopy(wallet: Wallet, autoCopy: boolean) {
+    setBusy(`autocopy-${wallet.address}`);
+    setError("");
+    try {
+      const response = await fetch("/api/wallets", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ address: wallet.address, autoCopy })
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error ?? "Could not update wallet.");
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not update wallet.");
+    } finally {
+      setBusy("");
+    }
+  }
+
   async function deleteWatchedWallet(wallet: Wallet) {
     if (!window.confirm(`Delete ${wallet.label} from the watchlist? Cached activity for this wallet will also be removed.`)) {
       return;
@@ -1613,6 +1632,15 @@ export default function Home() {
                       {wallet.notes ? <p>{wallet.notes}</p> : null}
                     </div>
                     <div className="row compact">
+                      <label className="subtle" title="Auto-copy decoded buys from this wallet (requires Auto-copy enabled in copy settings)">
+                        <input
+                          type="checkbox"
+                          checked={wallet.autoCopy === true}
+                          disabled={busy === `autocopy-${wallet.address}`}
+                          onChange={(e) => toggleWalletAutoCopy(wallet, e.target.checked)}
+                        />{" "}
+                        Auto-copy
+                      </label>
                       <button
                         className="button secondary"
                         onClick={() => fetchActivity(wallet)}
