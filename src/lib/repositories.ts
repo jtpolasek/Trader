@@ -1321,7 +1321,8 @@ function normalizeCopySettings(value: unknown): CopySettings {
     gasBufferBps: boundedNumber(input.gasBufferBps, DEFAULT_COPY_SETTINGS.gasBufferBps, 0, 10000),
     insufficientCashBehavior: input.insufficientCashBehavior === "cap" ? "cap" : "skip",
     allowlist: normalizeTokenList(input.allowlist),
-    blocklist: normalizeTokenList(input.blocklist)
+    blocklist: normalizeTokenList(input.blocklist),
+    autoCopy: input.autoCopy === true
   };
 }
 

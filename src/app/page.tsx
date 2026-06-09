@@ -71,6 +71,7 @@ type CopySettingsForm = {
   insufficientCashBehavior: CopySettings["insufficientCashBehavior"];
   allowlist: string;
   blocklist: string;
+  autoCopy: boolean;
 };
 
 type QuoteDebugSnapshot = {
@@ -1340,6 +1341,17 @@ export default function Home() {
             <form className="stack" onSubmit={saveCopySettings}>
               <div className="form-grid">
                 <div className="field">
+                  <label htmlFor="autoCopy">Auto-copy</label>
+                  <input
+                    id="autoCopy"
+                    type="checkbox"
+                    checked={copySettingsForm.autoCopy}
+                    onChange={(event) =>
+                      setCopySettingsForm({ ...copySettingsForm, autoCopy: event.target.checked })
+                    }
+                  />
+                </div>
+                <div className="field">
                   <label htmlFor="copyMode">Copy mode</label>
                   <select
                     id="copyMode"
@@ -2122,7 +2134,8 @@ function settingsToForm(settings: CopySettings | typeof DEFAULT_COPY_SETTINGS): 
     gasBufferBps: String(settings.gasBufferBps),
     insufficientCashBehavior: settings.insufficientCashBehavior,
     allowlist: Array.from(settings.allowlist).join("\n"),
-    blocklist: Array.from(settings.blocklist).join("\n")
+    blocklist: Array.from(settings.blocklist).join("\n"),
+    autoCopy: settings.autoCopy === true
   };
 }
 
@@ -2136,7 +2149,8 @@ function buildCopySettingsPayload(form: CopySettingsForm): CopySettings {
     gasBufferBps: Number(form.gasBufferBps),
     insufficientCashBehavior: form.insufficientCashBehavior,
     allowlist: parseTokenList(form.allowlist),
-    blocklist: parseTokenList(form.blocklist)
+    blocklist: parseTokenList(form.blocklist),
+    autoCopy: form.autoCopy
   };
 }
 
@@ -2373,7 +2387,7 @@ function parseSnapshot(value: string): Record<string, unknown> {
 
 function getSnapshotWarnings(snapshot: Record<string, unknown>) {
   const previewWarnings = Array.isArray((snapshot as QuoteDebugSnapshot).warnings)
-    ? (snapshot as QuoteDebugSnapshot).warnings?.filter((warning): warning is string => typeof warning === "string")
+    ? ((snapshot as QuoteDebugSnapshot).warnings ?? []).filter((warning): warning is string => typeof warning === "string")
     : [];
   const normalizedQuote = snapshot.normalizedQuote;
   if (!normalizedQuote || typeof normalizedQuote !== "object" || Array.isArray(normalizedQuote)) return previewWarnings;

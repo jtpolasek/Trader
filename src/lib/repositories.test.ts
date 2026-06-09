@@ -279,7 +279,8 @@ describe("exportLocalData", () => {
       gasBufferBps: 1200,
       insufficientCashBehavior: "cap",
       allowlist: [token.address],
-      blocklist: []
+      blocklist: [],
+      autoCopy: false
     });
     insertWalletActivity([
       {
@@ -369,7 +370,8 @@ describe("resetPaperPortfolio", () => {
       gasBufferBps: 1500,
       insufficientCashBehavior: "cap",
       allowlist: [token.address],
-      blocklist: []
+      blocklist: [],
+      autoCopy: false
     });
     insertWalletActivity([
       {
@@ -636,7 +638,7 @@ describe("importLocalData", () => {
     repos.upsertWallet({ address: "0xwallet", label: "W", notes: "", gmgnUrl: "" });
     repos.updateCopySettings({
       mode: "fixedUsd", fixedUsd: 125, percentOfSource: 25, maxTradeUsd: 500,
-      slippageCapBps: 100, gasBufferBps: 1500, insufficientCashBehavior: "cap", allowlist: [], blocklist: []
+      slippageCapBps: 100, gasBufferBps: 1500, insufficientCashBehavior: "cap", allowlist: [], blocklist: [], autoCopy: false
     });
     repos.recordTrade(tradeInput({ tokenAddress: token.address }));
 

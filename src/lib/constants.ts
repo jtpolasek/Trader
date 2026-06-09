@@ -66,7 +66,8 @@ export const DEFAULT_COPY_SETTINGS = {
   gasBufferBps: DEFAULT_GAS_BUFFER_BPS,
   insufficientCashBehavior: "skip",
   allowlist: [] as string[],
-  blocklist: [] as string[]
+  blocklist: [] as string[],
+  autoCopy: false
 } as const;
 
 export const DEFAULT_EXIT_RULES: ExitRules = {
