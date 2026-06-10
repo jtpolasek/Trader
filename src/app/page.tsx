@@ -1242,13 +1242,13 @@ export default function Home() {
               )}
             </div>
           </div>
-      <section className="section">
+      <div className="panel">
         <div className="row">
           <h2>Candidate attention</h2>
           <span className="pill">{data?.candidateAttention.total ?? 0} saved</span>
         </div>
         <CandidateAttentionStrip summary={data?.candidateAttention} />
-      </section>
+      </div>
           <div className="panel">
             <div className="row">
               <h2>Wallet activity</h2>
