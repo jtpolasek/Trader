@@ -21,18 +21,12 @@
   --space-3: 12px;
   --space-4: 16px;
   --font-mono: ui-monospace, "Cascadia Code", Consolas, monospace;
+  --accent-2: #7aa7ff;
   --fs-body: 13px;
   --fs-small: 11px;
   --fs-label: 10px;
 
-  /* Aliases for old variable names still referenced below */
-  --background: var(--bg);
-  --foreground: var(--text);
-  --line: var(--border);
-  --accent-2: #7aa7ff;
-  --danger: var(--loss);
-  --warning: var(--warn);
-  --good: var(--gain);
+  /* Aliases still referenced below */
   --shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
   --font-sans:
     "Segoe UI Variable Text", "Segoe UI", "Aptos", "Inter", ui-sans-serif, system-ui, sans-serif;
