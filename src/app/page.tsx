@@ -1082,584 +1082,8 @@ export default function Home() {
       ) : null}
       {message ? <div className="alert success">{message}</div> : null}
 
-      <section className="section">
-        <div className="row">
-          <h2>Candidate attention</h2>
-          <span className="pill">{data?.candidateAttention.total ?? 0} saved</span>
-        </div>
-        <CandidateAttentionStrip summary={data?.candidateAttention} />
-      </section>
-
       <section className="section grid main-grid">
-        <div className="stack">
-          <div className="panel">
-            <div className="row">
-              <h2>Trade ticket</h2>
-              <span className="pill">0x + Uniswap quote</span>
-            </div>
-            <form className="stack" onSubmit={previewTrade}>
-              <div className="segmented" aria-label="Trade side">
-                {(["buy", "sell"] as TradeSide[]).map((side) => (
-                  <button
-                    type="button"
-                    className={tradeForm.side === side ? "active" : ""}
-                    onClick={() => {
-                      setPreview(null);
-                      setFetchedAt(null);
-                      setIsStale(false);
-                      setTradeForm((current) => ({ ...current, side }));
-                    }}
-                    key={side}
-                  >
-                    {side.toUpperCase()}
-                  </button>
-                ))}
-              </div>
-              <div className="form-grid">
-                <div className="field">
-                  <label htmlFor="tradeChain">Chain</label>
-                  <select
-                    id="tradeChain"
-                    value={tradeForm.chainId}
-                    onChange={(event) => {
-                      setPreview(null);
-                      setFetchedAt(null);
-                      setIsStale(false);
-                      setTradeForm({ ...tradeForm, chainId: event.target.value });
-                    }}
-                  >
-                    <option value="8453">Base</option>
-                    <option value="1">Ethereum</option>
-                  </select>
-                </div>
-                <div className="field full">
-                  <label htmlFor="tokenAddress">ERC-20 contract</label>
-                  <input
-                    id="tokenAddress"
-                    value={tradeForm.tokenAddress}
-                    onChange={(event) => setTradeForm({ ...tradeForm, tokenAddress: event.target.value })}
-                    placeholder="0x..."
-                  />
-                </div>
-                {tradeForm.side === "buy" ? (
-                  <div className="field">
-                    <label htmlFor="usdAmount">USD amount</label>
-                    <input
-                      id="usdAmount"
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={tradeForm.usdAmount}
-                      onChange={(event) => setTradeForm({ ...tradeForm, usdAmount: event.target.value })}
-                    />
-                  </div>
-                ) : (
-                  <div className="field">
-                    <label htmlFor="tokenQuantity">Token quantity</label>
-                    <input
-                      id="tokenQuantity"
-                      type="number"
-                      min="0"
-                      step="any"
-                      value={tradeForm.tokenQuantity || selectedPosition?.quantity || ""}
-                      onChange={(event) => setTradeForm({ ...tradeForm, tokenQuantity: event.target.value })}
-                    />
-                  </div>
-                )}
-                <div className="field">
-                  <label htmlFor="slippageBps">Slippage tolerance bps</label>
-                  <input
-                    id="slippageBps"
-                    type="number"
-                    min="0"
-                    max="5000"
-                    value={tradeForm.slippageBps}
-                    onChange={(event) => setTradeForm({ ...tradeForm, slippageBps: event.target.value })}
-                  />
-                </div>
-                <div className="field">
-                  <label htmlFor="gasBufferBps">Gas buffer bps</label>
-                  <input
-                    id="gasBufferBps"
-                    type="number"
-                    min="0"
-                    max="10000"
-                    value={tradeForm.gasBufferBps}
-                    onChange={(event) => setTradeForm({ ...tradeForm, gasBufferBps: event.target.value })}
-                  />
-                </div>
-              </div>
-              <button className="button" type="submit" disabled={busy === "preview"}>
-                {busy === "preview" ? <Loader2 size={18} /> : <Eye size={18} />}
-                Preview
-              </button>
-            </form>
-
-            {preview ? (
-              <div className="quote-box stack">
-                {isStale && (
-                  <div className="alert">
-                    ⚠ Quote is over 2 minutes old — prices may have moved. Consider refreshing.
-                  </div>
-                )}
-                <div className="row">
-                  <div>
-                    <h3>
-                      {preview.side.toUpperCase()} {preview.token.symbol}
-                    </h3>
-                    <p className="subtle">
-                      {formatNumber(preview.quantity, 6)} tokens at {formatUsdPrice(preview.priceUsd)}
-                    </p>
-                  </div>
-                  <span className="pill">{preview.token.name}</span>
-                </div>
-                <div className="grid dashboard-grid">
-                  <Mini label="Notional" value={formatUsd(preview.notionalUsd)} />
-                  <Mini label="Gas" value={formatUsd(preview.gasUsd)} />
-                  <Mini label="0x fee" value={formatUsd(preview.dexFeeUsd)} />
-                  <Mini
-                    label="Price impact + pool fees"
-                    value={formatNullableUsd(getImplicitSwapCostUsd(preview.quoteSnapshot))}
-                  />
-                  <Mini
-                    label={preview.side === "buy" ? "All-in cost" : "Net proceeds"}
-                    value={formatUsd(preview.side === "buy" ? preview.totalCostUsd : preview.sellProceedsUsd)}
-                  />
-                </div>
-                <details className="compact-disclosure">
-                  <summary>Cost methodology</summary>
-                  <p className="subtle">
-                    Explicit fees are gas plus any provider-reported 0x/integrator fee. Price impact + pool fees is
-                    inferred from the gap between this trade quote and a small reference quote, so it may also absorb
-                    route costs embedded in the quoted output.
-                  </p>
-                  {getValuedFeeUsd(preview.quoteSnapshot) > 0 ? (
-                    <p className="subtle">
-                      0x fee includes {formatUsd(getValuedFeeUsd(preview.quoteSnapshot))} valued from a non-USDC
-                      token.
-                    </p>
-                  ) : null}
-                </details>
-                {preview.warnings.map((warning) => (
-                  <div className="alert" key={warning}>
-                    {warning}
-                  </div>
-                ))}
-                <QuoteDebug snapshot={preview.quoteSnapshot} />
-                <button className="button" onClick={executeTrade} disabled={busy === "execute"}>
-                  {busy === "execute" ? <Loader2 size={18} /> : <Send size={18} />}
-                  Execute paper trade
-                </button>
-              </div>
-            ) : null}
-          </div>
-
-          <details className="panel collapsible-panel">
-            <summary className="row collapsible-summary">
-              <h2>Copy settings</h2>
-              <span className="pill">{copySettingsForm.mode === "fixedUsd" ? "Fixed USD" : "Percent"}</span>
-            </summary>
-            <form className="stack collapsible-body" onSubmit={saveCopySettings}>
-              <div className="form-grid">
-                <div className="field">
-                  <label htmlFor="autoCopy">Auto-copy</label>
-                  <input
-                    id="autoCopy"
-                    type="checkbox"
-                    checked={copySettingsForm.autoCopy}
-                    onChange={(event) =>
-                      setCopySettingsForm({ ...copySettingsForm, autoCopy: event.target.checked })
-                    }
-                  />
-                </div>
-                <div className="field">
-                  <label htmlFor="copyMode">Copy mode</label>
-                  <select
-                    id="copyMode"
-                    value={copySettingsForm.mode}
-                    onChange={(event) =>
-                      setCopySettingsForm({
-                        ...copySettingsForm,
-                        mode: event.target.value as CopySettingsForm["mode"]
-                      })
-                    }
-                  >
-                    <option value="fixedUsd">Fixed USD</option>
-                    <option value="percentOfSource">Percent of source</option>
-                  </select>
-                </div>
-                <div className="field">
-                  <label htmlFor="insufficientCashBehavior">Insufficient cash</label>
-                  <select
-                    id="insufficientCashBehavior"
-                    value={copySettingsForm.insufficientCashBehavior}
-                    onChange={(event) =>
-                      setCopySettingsForm({
-                        ...copySettingsForm,
-                        insufficientCashBehavior: event.target.value as CopySettingsForm["insufficientCashBehavior"]
-                      })
-                    }
-                  >
-                    <option value="skip">Skip</option>
-                    <option value="cap">Cap</option>
-                  </select>
-                </div>
-                <div className="field">
-                  <label htmlFor="fixedUsd">Fixed USD</label>
-                  <input
-                    id="fixedUsd"
-                    type="number"
-                    min="1"
-                    step="0.01"
-                    value={copySettingsForm.fixedUsd}
-                    onChange={(event) => setCopySettingsForm({ ...copySettingsForm, fixedUsd: event.target.value })}
-                  />
-                </div>
-                <div className="field">
-                  <label htmlFor="percentOfSource">Source percent</label>
-                  <input
-                    id="percentOfSource"
-                    type="number"
-                    min="1"
-                    max="100"
-                    step="0.1"
-                    value={copySettingsForm.percentOfSource}
-                    onChange={(event) =>
-                      setCopySettingsForm({ ...copySettingsForm, percentOfSource: event.target.value })
-                    }
-                  />
-                  <details className="compact-disclosure">
-                    <summary>What this uses</summary>
-                    <p className="subtle">
-                      In percent mode, the app copies this share of the source wallet&apos;s trade size. For buys, it
-                      uses the source trade&apos;s USD notional when available, or converts ETH/WETH to USD first.
-                    </p>
-                  </details>
-                </div>
-                <div className="field">
-                  <label htmlFor="maxTradeUsd">Max trade USD</label>
-                  <input
-                    id="maxTradeUsd"
-                    type="number"
-                    min="1"
-                    step="0.01"
-                    value={copySettingsForm.maxTradeUsd}
-                    onChange={(event) => setCopySettingsForm({ ...copySettingsForm, maxTradeUsd: event.target.value })}
-                  />
-                </div>
-                <div className="field">
-                  <label htmlFor="slippageCapBps">Slippage cap bps</label>
-                  <input
-                    id="slippageCapBps"
-                    type="number"
-                    min="0"
-                    max="5000"
-                    value={copySettingsForm.slippageCapBps}
-                    onChange={(event) =>
-                      setCopySettingsForm({ ...copySettingsForm, slippageCapBps: event.target.value })
-                    }
-                  />
-                </div>
-                <div className="field">
-                  <label htmlFor="copyGasBufferBps">Gas buffer bps</label>
-                  <input
-                    id="copyGasBufferBps"
-                    type="number"
-                    min="0"
-                    max="10000"
-                    value={copySettingsForm.gasBufferBps}
-                    onChange={(event) =>
-                      setCopySettingsForm({ ...copySettingsForm, gasBufferBps: event.target.value })
-                    }
-                  />
-                </div>
-                <div className="field full">
-                  <label htmlFor="allowlist">Allowlist</label>
-                  <textarea
-                    id="allowlist"
-                    value={copySettingsForm.allowlist}
-                    onChange={(event) => setCopySettingsForm({ ...copySettingsForm, allowlist: event.target.value })}
-                    placeholder="0x..."
-                  />
-                </div>
-                <div className="field full">
-                  <label htmlFor="blocklist">Blocklist</label>
-                  <textarea
-                    id="blocklist"
-                    value={copySettingsForm.blocklist}
-                    onChange={(event) => setCopySettingsForm({ ...copySettingsForm, blocklist: event.target.value })}
-                    placeholder="0x..."
-                  />
-                </div>
-              </div>
-              <button className="button secondary" type="submit" disabled={busy === "settings"}>
-                {busy === "settings" ? <Loader2 size={18} /> : <Save size={18} />}
-                Save settings
-              </button>
-            </form>
-          </details>
-
-          <details className="panel collapsible-panel">
-            <summary className="row collapsible-summary">
-              <h2>Auto-exit rules</h2>
-              <span className="pill">{exitRules.enabled ? "On" : "Off"}</span>
-            </summary>
-            <form
-              className="stack collapsible-body"
-              onSubmit={async (e) => {
-                e.preventDefault();
-                const res = await fetch("/api/settings/exit-rules", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify(exitRules)
-                });
-                if (res.ok) {
-                  const updated = await res.json() as { exitRules: ExitRules };
-                  setExitRules(updated.exitRules);
-                }
-              }}
-            >
-              <div className="form-grid">
-                <div className="field">
-                  <label htmlFor="exitEnabled">Enabled</label>
-                  <input
-                    id="exitEnabled"
-                    type="checkbox"
-                    checked={exitRules.enabled}
-                    onChange={(e) => setExitRules({ ...exitRules, enabled: e.target.checked })}
-                  />
-                </div>
-                <div className="field">
-                  <label htmlFor="takeProfitPct">Take profit %</label>
-                  <input
-                    id="takeProfitPct"
-                    type="number"
-                    min={0}
-                    placeholder="disabled"
-                    value={exitRules.takeProfitPct ?? ""}
-                    onChange={(e) => setExitRules({ ...exitRules, takeProfitPct: e.target.value === "" ? null : Number(e.target.value) })}
-                  />
-                </div>
-                <div className="field">
-                  <label htmlFor="stopLossPct">Stop loss %</label>
-                  <input
-                    id="stopLossPct"
-                    type="number"
-                    min={0}
-                    placeholder="disabled"
-                    value={exitRules.stopLossPct ?? ""}
-                    onChange={(e) => setExitRules({ ...exitRules, stopLossPct: e.target.value === "" ? null : Number(e.target.value) })}
-                  />
-                </div>
-                <div className="field">
-                  <label htmlFor="exitSizePct">Exit size %</label>
-                  <input
-                    id="exitSizePct"
-                    type="number"
-                    min={1}
-                    max={100}
-                    value={exitRules.exitSizePct}
-                    onChange={(e) => setExitRules({ ...exitRules, exitSizePct: Number(e.target.value) })}
-                  />
-                </div>
-                <div className="field">
-                  <label htmlFor="checkIntervalSecs">Check interval</label>
-                  <select
-                    id="checkIntervalSecs"
-                    value={exitRules.checkIntervalSecs}
-                    onChange={(e) => setExitRules({ ...exitRules, checkIntervalSecs: Number(e.target.value) })}
-                  >
-                    <option value={30}>30 seconds</option>
-                    <option value={60}>1 minute</option>
-                    <option value={120}>2 minutes</option>
-                    <option value={300}>5 minutes</option>
-                    <option value={600}>10 minutes</option>
-                  </select>
-                </div>
-              </div>
-              <button className="button secondary" type="submit">
-                Save auto-exit rules
-              </button>
-            </form>
-          </details>
-
-          <details className="panel collapsible-panel">
-            <summary className="row collapsible-summary">
-              <h2>Watchlist</h2>
-              <span className="pill">{data?.wallets.length ?? 0} wallets</span>
-            </summary>
-            <form className="stack collapsible-body" onSubmit={submitWallet}>
-              <div className="form-grid">
-                <div className="field full">
-                  <label htmlFor="walletAddress">Wallet address</label>
-                  <input
-                    id="walletAddress"
-                    value={walletForm.address}
-                    onChange={(event) => setWalletForm({ ...walletForm, address: event.target.value })}
-                    placeholder="0x... or https://gmgn.ai/base/address/0x..."
-                  />
-                </div>
-                <div className="field">
-                  <label htmlFor="walletLabel">Label</label>
-                  <input
-                    id="walletLabel"
-                    value={walletForm.label}
-                    onChange={(event) => setWalletForm({ ...walletForm, label: event.target.value })}
-                    placeholder="GMGN wallet"
-                  />
-                </div>
-                <div className="field">
-                  <label htmlFor="gmgnUrl">GMGN URL</label>
-                  <input
-                    id="gmgnUrl"
-                    value={walletForm.gmgnUrl}
-                    onChange={(event) => setWalletForm({ ...walletForm, gmgnUrl: event.target.value })}
-                    placeholder="https://gmgn.ai/..."
-                  />
-                </div>
-                <div className="field full">
-                  <label htmlFor="walletNotes">Notes</label>
-                  <textarea
-                    id="walletNotes"
-                    value={walletForm.notes}
-                    onChange={(event) => setWalletForm({ ...walletForm, notes: event.target.value })}
-                  />
-                </div>
-              </div>
-              <button className="button secondary" type="submit" disabled={busy === "wallet"}>
-                {busy === "wallet" ? <Loader2 size={18} /> : <Plus size={18} />}
-                Add wallet
-              </button>
-            </form>
-          </details>
-          {data && !data.copySettings.autoCopy && data.wallets.some((wallet) => wallet.autoCopy) ? (
-            <p className="subtle">
-              Global auto-copy is off, so per-wallet Auto-copy toggles will not execute trades until it is enabled in Copy settings.
-            </p>
-          ) : null}
-          <div className="list">
-            {data?.wallets.map((wallet) => (
-              <article className="card wallet-card" key={wallet.address}>
-                <div className="row">
-                  <div>
-                    <h3>{wallet.label}</h3>
-                    <p className="mono subtle">{wallet.address}</p>
-                    {wallet.notes ? <p>{wallet.notes}</p> : null}
-                  </div>
-                  <div className="row compact wallet-actions">
-                    <label className="subtle" title="Auto-copy decoded buys from this wallet">
-                      <input
-                        type="checkbox"
-                        checked={wallet.autoCopy === true}
-                        disabled={busy === `autocopy-${wallet.address}`}
-                        onChange={(e) => toggleWalletAutoCopy(wallet, e.target.checked)}
-                      />{" "}
-                      Auto-copy
-                    </label>
-                    <button
-                      className="button secondary"
-                      onClick={() => fetchActivity(wallet)}
-                      disabled={busy === wallet.address || busy === `delete-${wallet.address}`}
-                      title="Fetch wallet activity"
-                    >
-                      {busy === wallet.address ? <Loader2 size={18} /> : <WalletCards size={18} />}
-                      Activity
-                    </button>
-                    <button
-                      className="icon-button danger"
-                      onClick={() => deleteWatchedWallet(wallet)}
-                      disabled={busy === wallet.address || busy === `delete-${wallet.address}`}
-                      title="Delete wallet"
-                    >
-                      {busy === `delete-${wallet.address}` ? <Loader2 size={18} /> : <Trash2 size={18} />}
-                    </button>
-                  </div>
-                </div>
-              </article>
-            ))}
-          </div>
-
-          <div className="panel">
-            <div className="row">
-              <h2>Wallet activity</h2>
-              <span className="pill">{candidates.length} candidates</span>
-              <span className="pill">{todayVisibleActivityCount} today</span>
-            </div>
-            <CandidateStatusSummary stats={candidateStats} />
-            {activityContext ? (
-              <p className="subtle">
-                {activityContext.source === "cached"
-                  ? `Showing ${activityContext.fetched} cached ETH/ERC-20 transfers for ${activityContext.label}.`
-                  : `${activityContext.label} fetched ${activityContext.fetched} ETH/ERC-20 transfers from Ethereum and Base.`}
-              </p>
-            ) : null}
-            {activityContext?.warnings?.length ? (
-              <div className="notice">
-                {activityContext.warnings.map((warning) => (
-                  <p key={warning}>{warning}</p>
-                ))}
-              </div>
-            ) : null}
-            {candidates.length ? (
-              <CandidateList
-                candidates={candidates}
-                copyResults={copyResults}
-                trades={data?.trades ?? []}
-                busy={busy}
-                copyCandidate={copyCandidate}
-                activeTab={activeCandidateTab}
-                setActiveTab={setActiveCandidateTab}
-              />
-            ) : null}
-            <div className="list">
-              {visibleActivity.map((item) => (
-                <article className="card" key={item.id}>
-                  <div className="row">
-                    <div>
-                      <div className="activity-meta">
-                        <TimestampLine timestamp={item.timestamp} compact />
-                        <span className={activityTypeClass(item)}>{activityTypeLabel(item)}</span>
-                        <span className="pill">{item.chainName}</span>
-                        <span className="pill">{item.category}</span>
-                      </div>
-                      <h3>
-                        {item.asset} {formatNumber(item.value, 4)}
-                      </h3>
-                      <ExplorerLink chainId={item.chainId} hash={item.hash} />
-                    </div>
-                  </div>
-                </article>
-              ))}
-              {!activity.length ? (
-                <p className="subtle">
-                  {activityContext
-                    ? "No matching inbound or outbound ETH/ERC-20 transfers were returned for this wallet on Ethereum or Base."
-                    : "Fetch a watched wallet to cache recent transfer activity."}
-                </p>
-              ) : null}
-              {activity.length > 0 && !visibleActivity.length ? (
-                <p className="subtle">
-                  {activeCandidateTab === "actionable" && candidates.length && !filteredActivity.length
-                    ? "No actionable wallet activity is visible right now. Open All activity to inspect the rest."
-                    : activeCandidateTab === "actionable" && candidates.length
-                    ? "No actionable transactions yet today. Use show more to expand older wallet activity."
-                    : "No transactions yet today. Use show more to expand older wallet activity."}
-                </p>
-              ) : null}
-            </div>
-            {remainingOlderActivity > 0 ? (
-              <button
-                type="button"
-                className="button secondary show-more-button"
-                onClick={() => setExtraVisibleActivity((count) => count + 5)}
-              >
-                Show {Math.min(5, remainingOlderActivity)} more ({remainingOlderActivity} older)
-              </button>
-            ) : null}
-          </div>
-        </div>
-
-        <div className="stack">
+        <div className="stack stack-primary">
           <div className="panel">
             <div className="row">
               <h2>Positions</h2>
@@ -1817,16 +1241,102 @@ export default function Home() {
                 <p className="subtle">Open positions will appear after your first paper buy.</p>
               )}
             </div>
-
-            <div className="panel trade-panel">
-              <div className="row">
+          </div>
+      <section className="section">
+        <div className="row">
+          <h2>Candidate attention</h2>
+          <span className="pill">{data?.candidateAttention.total ?? 0} saved</span>
+        </div>
+        <CandidateAttentionStrip summary={data?.candidateAttention} />
+      </section>
+          <div className="panel">
+            <div className="row">
+              <h2>Wallet activity</h2>
+              <span className="pill">{candidates.length} candidates</span>
+              <span className="pill">{todayVisibleActivityCount} today</span>
+            </div>
+            <CandidateStatusSummary stats={candidateStats} />
+            {activityContext ? (
+              <p className="subtle">
+                {activityContext.source === "cached"
+                  ? `Showing ${activityContext.fetched} cached ETH/ERC-20 transfers for ${activityContext.label}.`
+                  : `${activityContext.label} fetched ${activityContext.fetched} ETH/ERC-20 transfers from Ethereum and Base.`}
+              </p>
+            ) : null}
+            {activityContext?.warnings?.length ? (
+              <div className="notice">
+                {activityContext.warnings.map((warning) => (
+                  <p key={warning}>{warning}</p>
+                ))}
+              </div>
+            ) : null}
+            {candidates.length ? (
+              <CandidateList
+                candidates={candidates}
+                copyResults={copyResults}
+                trades={data?.trades ?? []}
+                busy={busy}
+                copyCandidate={copyCandidate}
+                activeTab={activeCandidateTab}
+                setActiveTab={setActiveCandidateTab}
+              />
+            ) : null}
+            <div className="list">
+              {visibleActivity.map((item) => (
+                <article className="card" key={item.id}>
+                  <div className="row">
+                    <div>
+                      <div className="activity-meta">
+                        <TimestampLine timestamp={item.timestamp} compact />
+                        <span className={activityTypeClass(item)}>{activityTypeLabel(item)}</span>
+                        <span className="pill">{item.chainName}</span>
+                        <span className="pill">{item.category}</span>
+                      </div>
+                      <h3>
+                        {item.asset} {formatNumber(item.value, 4)}
+                      </h3>
+                      <ExplorerLink chainId={item.chainId} hash={item.hash} />
+                    </div>
+                  </div>
+                </article>
+              ))}
+              {!activity.length ? (
+                <p className="subtle">
+                  {activityContext
+                    ? "No matching inbound or outbound ETH/ERC-20 transfers were returned for this wallet on Ethereum or Base."
+                    : "Fetch a watched wallet to cache recent transfer activity."}
+                </p>
+              ) : null}
+              {activity.length > 0 && !visibleActivity.length ? (
+                <p className="subtle">
+                  {activeCandidateTab === "actionable" && candidates.length && !filteredActivity.length
+                    ? "No actionable wallet activity is visible right now. Open All activity to inspect the rest."
+                    : activeCandidateTab === "actionable" && candidates.length
+                    ? "No actionable transactions yet today. Use show more to expand older wallet activity."
+                    : "No transactions yet today. Use show more to expand older wallet activity."}
+                </p>
+              ) : null}
+            </div>
+            {remainingOlderActivity > 0 ? (
+              <button
+                type="button"
+                className="button secondary show-more-button"
+                onClick={() => setExtraVisibleActivity((count) => count + 5)}
+              >
+                Show {Math.min(5, remainingOlderActivity)} more ({remainingOlderActivity} older)
+              </button>
+            ) : null}
+          </div>
+          <details className="panel collapsible-panel">
+            <summary className="row collapsible-summary">
                 <h2>Past trades</h2>
                 <span className="pill">{todayTrades.length} today</span>
                 <span className="pill">
                   {stats?.wins ?? 0}W / {stats?.losses ?? 0}L
                 </span>
                 <span className="pill">{allTrades.length} total</span>
-              </div>
+            </summary>
+            <div className="collapsible-body">
               {allTrades.length ? (
                 <>
                   {visibleTrades.length ? (
@@ -1899,7 +1409,494 @@ export default function Home() {
                 <p className="subtle">Trades will appear here after your first paper execution.</p>
               )}
             </div>
+          </details>
+        </div>
+        <div className="stack stack-secondary">
+          <details className="panel collapsible-panel" open>
+            <summary className="row collapsible-summary">
+              <h2>Watchlist</h2>
+              <span className="pill">{data?.wallets.length ?? 0} wallets</span>
+            </summary>
+            <form className="stack collapsible-body" onSubmit={submitWallet}>
+              <div className="form-grid">
+                <div className="field full">
+                  <label htmlFor="walletAddress">Wallet address</label>
+                  <input
+                    id="walletAddress"
+                    value={walletForm.address}
+                    onChange={(event) => setWalletForm({ ...walletForm, address: event.target.value })}
+                    placeholder="0x... or https://gmgn.ai/base/address/0x..."
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="walletLabel">Label</label>
+                  <input
+                    id="walletLabel"
+                    value={walletForm.label}
+                    onChange={(event) => setWalletForm({ ...walletForm, label: event.target.value })}
+                    placeholder="GMGN wallet"
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="gmgnUrl">GMGN URL</label>
+                  <input
+                    id="gmgnUrl"
+                    value={walletForm.gmgnUrl}
+                    onChange={(event) => setWalletForm({ ...walletForm, gmgnUrl: event.target.value })}
+                    placeholder="https://gmgn.ai/..."
+                  />
+                </div>
+                <div className="field full">
+                  <label htmlFor="walletNotes">Notes</label>
+                  <textarea
+                    id="walletNotes"
+                    value={walletForm.notes}
+                    onChange={(event) => setWalletForm({ ...walletForm, notes: event.target.value })}
+                  />
+                </div>
+              </div>
+              <button className="button secondary" type="submit" disabled={busy === "wallet"}>
+                {busy === "wallet" ? <Loader2 size={18} /> : <Plus size={18} />}
+                Add wallet
+              </button>
+            </form>
+          </details>
+          {data && !data.copySettings.autoCopy && data.wallets.some((wallet) => wallet.autoCopy) ? (
+            <p className="subtle">
+              Global auto-copy is off, so per-wallet Auto-copy toggles will not execute trades until it is enabled in Copy settings.
+            </p>
+          ) : null}
+          <div className="list">
+            {data?.wallets.map((wallet) => (
+              <article className="card wallet-card" key={wallet.address}>
+                <div className="row">
+                  <div>
+                    <h3>{wallet.label}</h3>
+                    <p className="mono subtle">{wallet.address}</p>
+                    {wallet.notes ? <p>{wallet.notes}</p> : null}
+                  </div>
+                  <div className="row compact wallet-actions">
+                    <label className="subtle" title="Auto-copy decoded buys from this wallet">
+                      <input
+                        type="checkbox"
+                        checked={wallet.autoCopy === true}
+                        disabled={busy === `autocopy-${wallet.address}`}
+                        onChange={(e) => toggleWalletAutoCopy(wallet, e.target.checked)}
+                      />{" "}
+                      Auto-copy
+                    </label>
+                    <button
+                      className="button secondary"
+                      onClick={() => fetchActivity(wallet)}
+                      disabled={busy === wallet.address || busy === `delete-${wallet.address}`}
+                      title="Fetch wallet activity"
+                    >
+                      {busy === wallet.address ? <Loader2 size={18} /> : <WalletCards size={18} />}
+                      Activity
+                    </button>
+                    <button
+                      className="icon-button danger"
+                      onClick={() => deleteWatchedWallet(wallet)}
+                      disabled={busy === wallet.address || busy === `delete-${wallet.address}`}
+                      title="Delete wallet"
+                    >
+                      {busy === `delete-${wallet.address}` ? <Loader2 size={18} /> : <Trash2 size={18} />}
+                    </button>
+                  </div>
+                </div>
+              </article>
+            ))}
           </div>
+          <details className="panel collapsible-panel">
+            <summary className="row collapsible-summary">
+              <h2>Trade ticket</h2>
+              <span className="pill">0x + Uniswap quote</span>
+            </summary>
+            <div className="collapsible-body">
+            <form className="stack" onSubmit={previewTrade}>
+              <div className="segmented" aria-label="Trade side">
+                {(["buy", "sell"] as TradeSide[]).map((side) => (
+                  <button
+                    type="button"
+                    className={tradeForm.side === side ? "active" : ""}
+                    onClick={() => {
+                      setPreview(null);
+                      setFetchedAt(null);
+                      setIsStale(false);
+                      setTradeForm((current) => ({ ...current, side }));
+                    }}
+                    key={side}
+                  >
+                    {side.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+              <div className="form-grid">
+                <div className="field">
+                  <label htmlFor="tradeChain">Chain</label>
+                  <select
+                    id="tradeChain"
+                    value={tradeForm.chainId}
+                    onChange={(event) => {
+                      setPreview(null);
+                      setFetchedAt(null);
+                      setIsStale(false);
+                      setTradeForm({ ...tradeForm, chainId: event.target.value });
+                    }}
+                  >
+                    <option value="8453">Base</option>
+                    <option value="1">Ethereum</option>
+                  </select>
+                </div>
+                <div className="field full">
+                  <label htmlFor="tokenAddress">ERC-20 contract</label>
+                  <input
+                    id="tokenAddress"
+                    value={tradeForm.tokenAddress}
+                    onChange={(event) => setTradeForm({ ...tradeForm, tokenAddress: event.target.value })}
+                    placeholder="0x..."
+                  />
+                </div>
+                {tradeForm.side === "buy" ? (
+                  <div className="field">
+                    <label htmlFor="usdAmount">USD amount</label>
+                    <input
+                      id="usdAmount"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={tradeForm.usdAmount}
+                      onChange={(event) => setTradeForm({ ...tradeForm, usdAmount: event.target.value })}
+                    />
+                  </div>
+                ) : (
+                  <div className="field">
+                    <label htmlFor="tokenQuantity">Token quantity</label>
+                    <input
+                      id="tokenQuantity"
+                      type="number"
+                      min="0"
+                      step="any"
+                      value={tradeForm.tokenQuantity || selectedPosition?.quantity || ""}
+                      onChange={(event) => setTradeForm({ ...tradeForm, tokenQuantity: event.target.value })}
+                    />
+                  </div>
+                )}
+                <div className="field">
+                  <label htmlFor="slippageBps">Slippage tolerance bps</label>
+                  <input
+                    id="slippageBps"
+                    type="number"
+                    min="0"
+                    max="5000"
+                    value={tradeForm.slippageBps}
+                    onChange={(event) => setTradeForm({ ...tradeForm, slippageBps: event.target.value })}
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="gasBufferBps">Gas buffer bps</label>
+                  <input
+                    id="gasBufferBps"
+                    type="number"
+                    min="0"
+                    max="10000"
+                    value={tradeForm.gasBufferBps}
+                    onChange={(event) => setTradeForm({ ...tradeForm, gasBufferBps: event.target.value })}
+                  />
+                </div>
+              </div>
+              <button className="button" type="submit" disabled={busy === "preview"}>
+                {busy === "preview" ? <Loader2 size={18} /> : <Eye size={18} />}
+                Preview
+              </button>
+            </form>
+
+            {preview ? (
+              <div className="quote-box stack">
+                {isStale && (
+                  <div className="alert">
+                    ⚠ Quote is over 2 minutes old — prices may have moved. Consider refreshing.
+                  </div>
+                )}
+                <div className="row">
+                  <div>
+                    <h3>
+                      {preview.side.toUpperCase()} {preview.token.symbol}
+                    </h3>
+                    <p className="subtle">
+                      {formatNumber(preview.quantity, 6)} tokens at {formatUsdPrice(preview.priceUsd)}
+                    </p>
+                  </div>
+                  <span className="pill">{preview.token.name}</span>
+                </div>
+                <div className="grid dashboard-grid">
+                  <Mini label="Notional" value={formatUsd(preview.notionalUsd)} />
+                  <Mini label="Gas" value={formatUsd(preview.gasUsd)} />
+                  <Mini label="0x fee" value={formatUsd(preview.dexFeeUsd)} />
+                  <Mini
+                    label="Price impact + pool fees"
+                    value={formatNullableUsd(getImplicitSwapCostUsd(preview.quoteSnapshot))}
+                  />
+                  <Mini
+                    label={preview.side === "buy" ? "All-in cost" : "Net proceeds"}
+                    value={formatUsd(preview.side === "buy" ? preview.totalCostUsd : preview.sellProceedsUsd)}
+                  />
+                </div>
+                <details className="compact-disclosure">
+                  <summary>Cost methodology</summary>
+                  <p className="subtle">
+                    Explicit fees are gas plus any provider-reported 0x/integrator fee. Price impact + pool fees is
+                    inferred from the gap between this trade quote and a small reference quote, so it may also absorb
+                    route costs embedded in the quoted output.
+                  </p>
+                  {getValuedFeeUsd(preview.quoteSnapshot) > 0 ? (
+                    <p className="subtle">
+                      0x fee includes {formatUsd(getValuedFeeUsd(preview.quoteSnapshot))} valued from a non-USDC
+                      token.
+                    </p>
+                  ) : null}
+                </details>
+                {preview.warnings.map((warning) => (
+                  <div className="alert" key={warning}>
+                    {warning}
+                  </div>
+                ))}
+                <QuoteDebug snapshot={preview.quoteSnapshot} />
+                <button className="button" onClick={executeTrade} disabled={busy === "execute"}>
+                  {busy === "execute" ? <Loader2 size={18} /> : <Send size={18} />}
+                  Execute paper trade
+                </button>
+              </div>
+            ) : null}
+            </div>
+          </details>
+          <details className="panel collapsible-panel">
+            <summary className="row collapsible-summary">
+              <h2>Copy settings</h2>
+              <span className="pill">{copySettingsForm.mode === "fixedUsd" ? "Fixed USD" : "Percent"}</span>
+            </summary>
+            <form className="stack collapsible-body" onSubmit={saveCopySettings}>
+              <div className="form-grid">
+                <div className="field">
+                  <label htmlFor="autoCopy">Auto-copy</label>
+                  <input
+                    id="autoCopy"
+                    type="checkbox"
+                    checked={copySettingsForm.autoCopy}
+                    onChange={(event) =>
+                      setCopySettingsForm({ ...copySettingsForm, autoCopy: event.target.checked })
+                    }
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="copyMode">Copy mode</label>
+                  <select
+                    id="copyMode"
+                    value={copySettingsForm.mode}
+                    onChange={(event) =>
+                      setCopySettingsForm({
+                        ...copySettingsForm,
+                        mode: event.target.value as CopySettingsForm["mode"]
+                      })
+                    }
+                  >
+                    <option value="fixedUsd">Fixed USD</option>
+                    <option value="percentOfSource">Percent of source</option>
+                  </select>
+                </div>
+                <div className="field">
+                  <label htmlFor="insufficientCashBehavior">Insufficient cash</label>
+                  <select
+                    id="insufficientCashBehavior"
+                    value={copySettingsForm.insufficientCashBehavior}
+                    onChange={(event) =>
+                      setCopySettingsForm({
+                        ...copySettingsForm,
+                        insufficientCashBehavior: event.target.value as CopySettingsForm["insufficientCashBehavior"]
+                      })
+                    }
+                  >
+                    <option value="skip">Skip</option>
+                    <option value="cap">Cap</option>
+                  </select>
+                </div>
+                <div className="field">
+                  <label htmlFor="fixedUsd">Fixed USD</label>
+                  <input
+                    id="fixedUsd"
+                    type="number"
+                    min="1"
+                    step="0.01"
+                    value={copySettingsForm.fixedUsd}
+                    onChange={(event) => setCopySettingsForm({ ...copySettingsForm, fixedUsd: event.target.value })}
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="percentOfSource">Source percent</label>
+                  <input
+                    id="percentOfSource"
+                    type="number"
+                    min="1"
+                    max="100"
+                    step="0.1"
+                    value={copySettingsForm.percentOfSource}
+                    onChange={(event) =>
+                      setCopySettingsForm({ ...copySettingsForm, percentOfSource: event.target.value })
+                    }
+                  />
+                  <details className="compact-disclosure">
+                    <summary>What this uses</summary>
+                    <p className="subtle">
+                      In percent mode, the app copies this share of the source wallet&apos;s trade size. For buys, it
+                      uses the source trade&apos;s USD notional when available, or converts ETH/WETH to USD first.
+                    </p>
+                  </details>
+                </div>
+                <div className="field">
+                  <label htmlFor="maxTradeUsd">Max trade USD</label>
+                  <input
+                    id="maxTradeUsd"
+                    type="number"
+                    min="1"
+                    step="0.01"
+                    value={copySettingsForm.maxTradeUsd}
+                    onChange={(event) => setCopySettingsForm({ ...copySettingsForm, maxTradeUsd: event.target.value })}
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="slippageCapBps">Slippage cap bps</label>
+                  <input
+                    id="slippageCapBps"
+                    type="number"
+                    min="0"
+                    max="5000"
+                    value={copySettingsForm.slippageCapBps}
+                    onChange={(event) =>
+                      setCopySettingsForm({ ...copySettingsForm, slippageCapBps: event.target.value })
+                    }
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="copyGasBufferBps">Gas buffer bps</label>
+                  <input
+                    id="copyGasBufferBps"
+                    type="number"
+                    min="0"
+                    max="10000"
+                    value={copySettingsForm.gasBufferBps}
+                    onChange={(event) =>
+                      setCopySettingsForm({ ...copySettingsForm, gasBufferBps: event.target.value })
+                    }
+                  />
+                </div>
+                <div className="field full">
+                  <label htmlFor="allowlist">Allowlist</label>
+                  <textarea
+                    id="allowlist"
+                    value={copySettingsForm.allowlist}
+                    onChange={(event) => setCopySettingsForm({ ...copySettingsForm, allowlist: event.target.value })}
+                    placeholder="0x..."
+                  />
+                </div>
+                <div className="field full">
+                  <label htmlFor="blocklist">Blocklist</label>
+                  <textarea
+                    id="blocklist"
+                    value={copySettingsForm.blocklist}
+                    onChange={(event) => setCopySettingsForm({ ...copySettingsForm, blocklist: event.target.value })}
+                    placeholder="0x..."
+                  />
+                </div>
+              </div>
+              <button className="button secondary" type="submit" disabled={busy === "settings"}>
+                {busy === "settings" ? <Loader2 size={18} /> : <Save size={18} />}
+                Save settings
+              </button>
+            </form>
+          </details>
+          <details className="panel collapsible-panel">
+            <summary className="row collapsible-summary">
+              <h2>Auto-exit rules</h2>
+              <span className="pill">{exitRules.enabled ? "On" : "Off"}</span>
+            </summary>
+            <form
+              className="stack collapsible-body"
+              onSubmit={async (e) => {
+                e.preventDefault();
+                const res = await fetch("/api/settings/exit-rules", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify(exitRules)
+                });
+                if (res.ok) {
+                  const updated = await res.json() as { exitRules: ExitRules };
+                  setExitRules(updated.exitRules);
+                }
+              }}
+            >
+              <div className="form-grid">
+                <div className="field">
+                  <label htmlFor="exitEnabled">Enabled</label>
+                  <input
+                    id="exitEnabled"
+                    type="checkbox"
+                    checked={exitRules.enabled}
+                    onChange={(e) => setExitRules({ ...exitRules, enabled: e.target.checked })}
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="takeProfitPct">Take profit %</label>
+                  <input
+                    id="takeProfitPct"
+                    type="number"
+                    min={0}
+                    placeholder="disabled"
+                    value={exitRules.takeProfitPct ?? ""}
+                    onChange={(e) => setExitRules({ ...exitRules, takeProfitPct: e.target.value === "" ? null : Number(e.target.value) })}
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="stopLossPct">Stop loss %</label>
+                  <input
+                    id="stopLossPct"
+                    type="number"
+                    min={0}
+                    placeholder="disabled"
+                    value={exitRules.stopLossPct ?? ""}
+                    onChange={(e) => setExitRules({ ...exitRules, stopLossPct: e.target.value === "" ? null : Number(e.target.value) })}
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="exitSizePct">Exit size %</label>
+                  <input
+                    id="exitSizePct"
+                    type="number"
+                    min={1}
+                    max={100}
+                    value={exitRules.exitSizePct}
+                    onChange={(e) => setExitRules({ ...exitRules, exitSizePct: Number(e.target.value) })}
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="checkIntervalSecs">Check interval</label>
+                  <select
+                    id="checkIntervalSecs"
+                    value={exitRules.checkIntervalSecs}
+                    onChange={(e) => setExitRules({ ...exitRules, checkIntervalSecs: Number(e.target.value) })}
+                  >
+                    <option value={30}>30 seconds</option>
+                    <option value={60}>1 minute</option>
+                    <option value={120}>2 minutes</option>
+                    <option value={300}>5 minutes</option>
+                    <option value={600}>10 minutes</option>
+                  </select>
+                </div>
+              </div>
+              <button className="button secondary" type="submit">
+                Save auto-exit rules
+              </button>
+            </form>
+          </details>
         </div>
       </section>
     </main>
