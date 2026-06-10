@@ -1,26 +1,9 @@
 "use client";
 
-import {
-  Activity,
-  Archive,
-  ArchiveRestore,
-  BadgeDollarSign,
-  Download,
-  Eye,
-  History,
-  ListRestart,
-  Loader2,
-  Plus,
-  RefreshCw,
-  Send,
-  Save,
-  Target,
-  Trash2,
-  TrendingUp,
-  Upload,
-  WalletCards
-} from "lucide-react";
+import { Eye, Loader2, Plus, RefreshCw, Send, Save, Trash2, WalletCards } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { Topbar } from "@/components/Topbar";
+import type { MetricItem } from "@/components/MetricStrip";
 import { candidateCopyTokenAddress, classifyCandidateTrust } from "@/lib/candidateTrust";
 import { isQuoteStale } from "@/lib/quoteAge";
 import { DEFAULT_COPY_SETTINGS, DEFAULT_EXIT_RULES, DEFAULT_GAS_BUFFER_BPS, DEFAULT_SLIPPAGE_BPS } from "@/lib/constants";
@@ -1034,133 +1017,52 @@ export default function Home() {
   const lossOfferPosition =
     lossOfferTokenAddress && data?.positions.find((position) => position.tokenAddress === lossOfferTokenAddress);
 
+  const realizedPnlUsd = portfolio?.realizedPnlUsd ?? 0;
+  const metricItems: MetricItem[] = [
+    { label: "Cash", value: formatUsd(portfolio?.cashUsd ?? 0) },
+    { label: "Equity basis", value: formatUsd(stats?.equityUsd ?? 0) },
+    {
+      label: "Realized PnL",
+      value: formatUsd(realizedPnlUsd),
+      tone: realizedPnlUsd < 0 ? "loss" : realizedPnlUsd > 0 ? "gain" : undefined
+    },
+    {
+      label: "Unrealized P&L",
+      value: totalUnrealizedPnlUsd !== null ? formatUsd(totalUnrealizedPnlUsd) : "—",
+      tone: totalUnrealizedPnlUsd !== null ? (totalUnrealizedPnlUsd >= 0 ? "gain" : "loss") : undefined
+    },
+    { label: "Fees paid", value: formatUsd(stats?.totalFeesUsd ?? 0) },
+    { label: "Win rate", value: formatNullablePercent(analytics?.winRate, "No closed trades") },
+    { label: "Fee drag", value: formatNullablePercent(analytics?.feeDrag) },
+    { label: "Open exposure", value: formatUsd(analytics?.openExposureUsd ?? 0) },
+    { label: "Avg hold", value: formatHoldHours(analytics?.averageHoldHours) },
+    { label: "Best token", value: formatTokenResult(analytics?.bestToken) },
+    { label: "Worst token", value: formatTokenResult(analytics?.worstToken) }
+  ];
+
   return (
     <main className="shell">
-      <header className="topbar">
-        <div className="brand">
-          <p className="eyebrow">Ethereum paper execution</p>
-          <h1>GMGN wallet simulator</h1>
-        </div>
-        {ledgerOk ? (
-          <span className={ledgerOk.ok ? "pill good" : "pill bad"} title="Ledger consistency check against the trade log">
-            {ledgerOk.ok ? "Ledger ✓ verified" : `⚠ ${ledgerOk.count} ledger mismatches`}
-          </span>
-        ) : null}
-        <button className="button secondary" onClick={() => refresh()} title="Refresh portfolio">
-          <RefreshCw size={18} />
-          Refresh
-        </button>
-        <select
-          className="archive-select"
-          value={dashboardRefreshInterval}
-          onChange={(event) => updateDashboardRefreshInterval(Number(event.target.value))}
-          title="Auto-refresh dashboard data"
-        >
-          {DASHBOARD_REFRESH_OPTIONS.map((option) => (
-            <option key={option.seconds} value={option.seconds}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-        <input
-          ref={importInputRef}
-          type="file"
-          accept="application/json"
-          style={{ display: "none" }}
-          onChange={(event) => {
-            const file = event.target.files?.[0];
-            event.target.value = "";
-            if (file) importSimulatorData(file);
-          }}
-        />
-        <button
-          className="button secondary"
-          onClick={() => importInputRef.current?.click()}
-          disabled={busy === "import-data"}
-          title="Import a local simulator export"
-        >
-          {busy === "import-data" ? <Loader2 size={18} /> : <Upload size={18} />}
-          Import data
-        </button>
-        <button
-          className="button secondary"
-          onClick={() => exportSimulatorData()}
-          disabled={busy === "export-data"}
-          title="Export local simulator data"
-        >
-          {busy === "export-data" ? <Loader2 size={18} /> : <Download size={18} />}
-          Export data
-        </button>
-        <button
-          className="button secondary"
-          onClick={() => reprocessStoredCandidates()}
-          disabled={busy === "reprocess-candidates"}
-          title="Reprocess stored wallet activity into missing trade candidates"
-        >
-          {busy === "reprocess-candidates" ? <Loader2 size={18} /> : <ListRestart size={18} />}
-          Reprocess
-        </button>
-        <button
-          className="button secondary"
-          onClick={() => archivePaperPortfolio()}
-          disabled={busy === "archive-paper"}
-          title="Archive the current paper trades, ledger, quotes, and copied candidate links"
-        >
-          {busy === "archive-paper" ? <Loader2 size={18} /> : <Archive size={18} />}
-          Archive paper
-        </button>
-        {paperArchives.length ? (
-          <>
-            <select
-              className="archive-select"
-              value={selectedArchive?.id ?? ""}
-              onChange={(event) => setSelectedArchiveId(event.target.value)}
-              title="Select a paper portfolio archive"
-            >
-              {paperArchives.map((archive) => (
-                <option key={archive.id} value={archive.id}>
-                  {archive.name} · {archive.tradeCount} trades · {new Date(archive.createdAt).toLocaleString()}
-                </option>
-              ))}
-            </select>
-            <button
-              className="button secondary"
-              onClick={() => selectedArchive && restorePaperPortfolioArchive(selectedArchive)}
-              disabled={!selectedArchive || busy.startsWith("restore-archive-")}
-              title={selectedArchive ? `Restore ${selectedArchive.name}` : "No paper archives yet"}
-            >
-              {busy.startsWith("restore-archive-") ? <Loader2 size={18} /> : <ArchiveRestore size={18} />}
-              Restore
-            </button>
-            <button
-              className="icon-button"
-              onClick={() => selectedArchive && renamePaperPortfolioArchive(selectedArchive)}
-              disabled={!selectedArchive || busy.startsWith("rename-archive-")}
-              title={selectedArchive ? `Rename ${selectedArchive.name}` : "No paper archives yet"}
-            >
-              {busy.startsWith("rename-archive-") ? <Loader2 size={18} /> : <Save size={18} />}
-            </button>
-            <button
-              className="icon-button danger"
-              onClick={() => selectedArchive && deletePaperPortfolioArchive(selectedArchive)}
-              disabled={!selectedArchive || busy.startsWith("delete-archive-")}
-              title={selectedArchive ? `Delete ${selectedArchive.name}` : "No paper archives yet"}
-            >
-              {busy.startsWith("delete-archive-") ? <Loader2 size={18} /> : <Trash2 size={18} />}
-            </button>
-            <span className="pill">{paperArchives.length} archived</span>
-          </>
-        ) : null}
-        <button
-          className="button danger"
-          onClick={() => resetPaperPortfolio()}
-          disabled={busy === "reset-portfolio"}
-          title="Reset simulated paper trades and ledger"
-        >
-          {busy === "reset-portfolio" ? <Loader2 size={18} /> : <Trash2 size={18} />}
-          Reset paper
-        </button>
-      </header>
+      <Topbar
+        ledgerOk={ledgerOk}
+        busy={busy}
+        dashboardRefreshInterval={dashboardRefreshInterval}
+        refreshOptions={DASHBOARD_REFRESH_OPTIONS}
+        onRefresh={refresh}
+        onIntervalChange={updateDashboardRefreshInterval}
+        metricItems={metricItems}
+        importInputRef={importInputRef}
+        onImportFile={importSimulatorData}
+        onExport={exportSimulatorData}
+        onReprocess={reprocessStoredCandidates}
+        onArchive={archivePaperPortfolio}
+        onReset={resetPaperPortfolio}
+        paperArchives={paperArchives}
+        selectedArchive={selectedArchive}
+        onSelectArchive={setSelectedArchiveId}
+        onRestoreArchive={restorePaperPortfolioArchive}
+        onRenameArchive={renamePaperPortfolioArchive}
+        onDeleteArchive={deletePaperPortfolioArchive}
+      />
 
       {error ? (
         <div className="alert stack">
@@ -1179,46 +1081,6 @@ export default function Home() {
         </div>
       ) : null}
       {message ? <div className="alert success">{message}</div> : null}
-
-      <section className="section grid dashboard-grid">
-        <Metric icon={<BadgeDollarSign size={20} />} label="Cash" value={formatUsd(portfolio?.cashUsd ?? 0)} />
-        <Metric icon={<Target size={20} />} label="Equity basis" value={formatUsd(stats?.equityUsd ?? 0)} />
-        <Metric icon={<Activity size={20} />} label="Realized PnL" value={formatUsd(portfolio?.realizedPnlUsd ?? 0)} />
-        <Metric icon={<History size={20} />} label="Fees paid" value={formatUsd(stats?.totalFeesUsd ?? 0)} />
-        <Metric
-          icon={<TrendingUp size={20} />}
-          label="Unrealized P&L"
-          value={totalUnrealizedPnlUsd !== null ? formatUsd(totalUnrealizedPnlUsd) : "—"}
-          valueClassName={totalUnrealizedPnlUsd !== null ? (totalUnrealizedPnlUsd >= 0 ? "good" : "bad") : ""}
-        />
-      </section>
-
-      <section className="section grid dashboard-grid trust-strip">
-        <Metric
-          className="compact-metric"
-          icon={<Activity size={18} />}
-          label="Win rate"
-          value={formatNullablePercent(analytics?.winRate, "No closed trades")}
-        />
-        <Metric
-          className="compact-metric"
-          icon={<BadgeDollarSign size={18} />}
-          label="Fee drag"
-          value={formatNullablePercent(analytics?.feeDrag)}
-        />
-        <Metric
-          className="compact-metric"
-          icon={<Target size={18} />}
-          label="Open exposure"
-          value={formatUsd(analytics?.openExposureUsd ?? 0)}
-        />
-        <Metric
-          className="compact-metric"
-          icon={<History size={18} />}
-          label="Avg hold"
-          value={formatHoldHours(analytics?.averageHoldHours)}
-        />
-      </section>
 
       <section className="section">
         <div className="row">
@@ -1798,19 +1660,6 @@ export default function Home() {
         </div>
 
         <div className="stack">
-          <div className="panel trust-panel">
-            <div className="row">
-              <h2>Trust signals</h2>
-              <span className="pill">{analytics?.closedTrades ?? 0} closed</span>
-            </div>
-            <div className="grid dashboard-grid">
-              <Mini label="Realized" value={formatUsd(analytics?.realizedPnlUsd ?? 0)} />
-              <Mini label="Open exposure" value={formatUsd(analytics?.openExposureUsd ?? 0)} />
-              <Mini label="Best token" value={formatTokenResult(analytics?.bestToken)} />
-              <Mini label="Worst token" value={formatTokenResult(analytics?.worstToken)} />
-            </div>
-          </div>
-
           <div className="panel">
             <div className="row">
               <h2>Positions</h2>
@@ -2054,30 +1903,6 @@ export default function Home() {
         </div>
       </section>
     </main>
-  );
-}
-
-function Metric({
-  icon,
-  label,
-  value,
-  className = "",
-  valueClassName = ""
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-  className?: string;
-  valueClassName?: string;
-}) {
-  return (
-    <div className={`metric ${className}`.trim()}>
-      <span className="row">
-        {label}
-        {icon}
-      </span>
-      <strong className={valueClassName || undefined}>{value}</strong>
-    </div>
   );
 }
 
