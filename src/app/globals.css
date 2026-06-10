@@ -1,16 +1,39 @@
 :root {
-  --background: #0a0d12;
-  --foreground: #e7eef7;
-  --muted: #93a1b4;
-  --line: rgba(143, 160, 186, 0.16);
-  --panel: rgba(15, 20, 28, 0.92);
-  --panel-2: rgba(20, 27, 37, 0.92);
-  --accent: #30d5c8;
+  --bg: #020617;
+  --panel: #0f172a;
+  --panel-2: #0b1222;
+  --border: #1e293b;
+  --border-strong: #334155;
+  --text: #e2e8f0;
+  --muted: #94a3b8;
+  --faint: #64748b;
+  --accent: #2dd4bf;
+  --accent-strong: #0d9488;
+  --gain: #34d399;
+  --loss: #fb7185;
+  --warn: #fbbf24;
+  --gain-bg: rgba(52, 211, 153, 0.1);
+  --loss-bg: rgba(251, 113, 133, 0.1);
+  --warn-bg: rgba(251, 191, 36, 0.1);
+  --radius: 8px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --font-mono: ui-monospace, "Cascadia Code", Consolas, monospace;
+  --fs-body: 13px;
+  --fs-small: 11px;
+  --fs-label: 10px;
+
+  /* Aliases for old variable names still referenced below */
+  --background: var(--bg);
+  --foreground: var(--text);
+  --line: var(--border);
   --accent-2: #7aa7ff;
-  --danger: #ff6b6b;
-  --warning: #f3b24d;
-  --good: #45d483;
-  --shadow: 0 24px 60px rgba(0, 0, 0, 0.34);
+  --danger: var(--loss);
+  --warning: var(--warn);
+  --good: var(--gain);
+  --shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
   --font-sans:
     "Segoe UI Variable Text", "Segoe UI", "Aptos", "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-display:
@@ -29,15 +52,11 @@ body {
 
 body {
   margin: 0;
-  color: var(--foreground);
+  background: var(--bg);
+  color: var(--text);
   font-family: var(--font-sans);
+  font-size: var(--fs-body);
   letter-spacing: 0.01em;
-  background:
-    radial-gradient(circle at top left, rgba(48, 213, 200, 0.12), transparent 28%),
-    radial-gradient(circle at top right, rgba(122, 167, 255, 0.12), transparent 26%),
-    radial-gradient(circle at center top, rgba(69, 212, 131, 0.05), transparent 42%),
-    linear-gradient(180deg, #0a0d12 0%, #090c10 42%, #07090d 100%);
-  background-attachment: fixed;
 }
 
 button,
@@ -57,11 +76,11 @@ body::before {
   inset: 0;
   pointer-events: none;
   background:
-    linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+    linear-gradient(rgba(255, 255, 255, 0.015) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.015) 1px, transparent 1px);
   background-size: 100% 28px, 28px 100%;
-  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.55), transparent 88%);
-  opacity: 0.18;
+  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.4), transparent 88%);
+  opacity: 0.14;
 }
 
 .shell {
@@ -82,9 +101,9 @@ body::before {
   gap: 10px;
   margin-bottom: 14px;
   padding: 12px 14px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--border);
   border-radius: 18px;
-  background: rgba(10, 13, 18, 0.82);
+  background: var(--panel);
   backdrop-filter: blur(18px);
   box-shadow: var(--shadow);
 }
@@ -102,7 +121,7 @@ body::before {
 .eyebrow {
   margin: 0;
   color: var(--accent);
-  font-size: 0.74rem;
+  font-size: var(--fs-label);
   font-weight: 800;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -193,10 +212,9 @@ p {
 .metric,
 .card,
 .panel {
-  border: 1px solid var(--line);
+  border: 1px solid var(--border);
   border-radius: 16px;
-  background:
-    linear-gradient(180deg, rgba(26, 34, 46, 0.95), rgba(15, 20, 28, 0.95));
+  background: var(--panel);
   box-shadow: var(--shadow);
 }
 
@@ -207,7 +225,7 @@ p {
 .metric span {
   display: block;
   color: var(--muted);
-  font-size: 0.74rem;
+  font-size: var(--fs-label);
   font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -272,16 +290,16 @@ p {
 }
 
 .compact-disclosure {
-  border: 1px solid rgba(143, 160, 186, 0.16);
+  border: 1px solid var(--border);
   border-radius: 12px;
   padding: 8px 10px;
-  background: rgba(8, 12, 18, 0.55);
+  background: var(--panel-2);
 }
 
 .compact-disclosure summary {
   cursor: pointer;
   color: var(--muted);
-  font-size: 0.72rem;
+  font-size: var(--fs-label);
   font-weight: 800;
   letter-spacing: 0.08em;
   list-style: none;
@@ -330,7 +348,7 @@ p {
 
 label {
   color: var(--muted);
-  font-size: 0.72rem;
+  font-size: var(--fs-label);
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -341,10 +359,10 @@ select,
 textarea {
   width: 100%;
   min-height: 40px;
-  border: 1px solid rgba(143, 160, 186, 0.18);
+  border: 1px solid var(--border);
   border-radius: 12px;
-  background: rgba(8, 12, 18, 0.88);
-  color: var(--foreground);
+  background: var(--panel-2);
+  color: var(--text);
   padding: 10px 12px;
 }
 
@@ -358,7 +376,7 @@ select:focus,
 textarea:focus,
 button:focus-visible,
 a:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--accent), white 20%);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
@@ -370,21 +388,21 @@ a:focus-visible {
   min-height: 40px;
   border: 1px solid transparent;
   border-radius: 12px;
-  background: linear-gradient(180deg, color-mix(in srgb, var(--accent), white 10%), var(--accent));
-  color: #061014;
+  background: var(--accent-strong);
+  color: var(--bg);
   padding: 10px 12px;
   font-weight: 800;
 }
 
 .button.secondary {
-  border-color: rgba(143, 160, 186, 0.18);
-  background: rgba(18, 24, 33, 0.9);
-  color: var(--foreground);
+  border-color: var(--border-strong);
+  background: var(--panel);
+  color: var(--text);
 }
 
 .button.danger {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--danger), white 10%), var(--danger));
-  color: #180708;
+  background: var(--loss);
+  color: var(--bg);
 }
 
 .icon-button {
@@ -393,15 +411,15 @@ a:focus-visible {
   justify-content: center;
   width: 40px;
   height: 40px;
-  border: 1px solid rgba(143, 160, 186, 0.18);
+  border: 1px solid var(--border-strong);
   border-radius: 12px;
-  background: rgba(18, 24, 33, 0.9);
-  color: var(--foreground);
+  background: var(--panel);
+  color: var(--text);
 }
 
 .icon-button.danger {
-  border-color: color-mix(in srgb, var(--danger), transparent 72%);
-  color: var(--danger);
+  border-color: var(--loss);
+  color: var(--loss);
 }
 
 .button:disabled,
@@ -415,9 +433,9 @@ a:focus-visible {
   grid-template-columns: 1fr 1fr;
   gap: 6px;
   padding: 4px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--border);
   border-radius: 12px;
-  background: rgba(18, 24, 33, 0.9);
+  background: var(--panel-2);
 }
 
 .segmented button {
@@ -430,8 +448,8 @@ a:focus-visible {
 }
 
 .segmented button.active {
-  background: rgba(8, 12, 18, 0.95);
-  color: var(--foreground);
+  background: var(--panel);
+  color: var(--text);
   box-shadow: 0 8px 18px rgba(0, 0, 0, 0.28);
 }
 
@@ -473,7 +491,7 @@ a:focus-visible {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 0.68rem;
+  font-size: var(--fs-small);
   white-space: nowrap;
 }
 
@@ -500,7 +518,7 @@ a:focus-visible {
 .tab-row {
   display: flex;
   gap: 0;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--border);
   margin-bottom: 10px;
 }
 
@@ -516,12 +534,12 @@ a:focus-visible {
 
 .tab-button.active {
   border-bottom-color: var(--accent);
-  color: var(--foreground);
+  color: var(--text);
   font-weight: 700;
 }
 
 .tab-button:hover:not(.active) {
-  color: var(--foreground);
+  color: var(--text);
 }
 
 .show-more-button {
@@ -538,9 +556,9 @@ a:focus-visible {
 }
 
 .candidate {
-  border: 1px solid var(--line);
+  border: 1px solid var(--border);
   border-radius: 14px;
-  background: rgba(12, 17, 24, 0.96);
+  background: var(--panel-2);
   padding: 12px;
 }
 
@@ -548,7 +566,7 @@ a:focus-visible {
   display: grid;
   gap: 8px;
   margin-top: 10px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--border);
   border-radius: 14px;
   padding: 10px;
 }
@@ -559,13 +577,13 @@ a:focus-visible {
 }
 
 .success-result {
-  border-color: color-mix(in srgb, var(--good), transparent 64%);
-  background: rgba(13, 28, 20, 0.92);
+  border-color: var(--gain);
+  background: var(--gain-bg);
 }
 
 .failed-result {
-  border-color: color-mix(in srgb, var(--danger), transparent 68%);
-  background: rgba(30, 15, 17, 0.92);
+  border-color: var(--loss);
+  background: var(--loss-bg);
 }
 
 .activity-meta {
@@ -579,7 +597,7 @@ a:focus-visible {
 }
 
 .mono {
-  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-family: var(--font-mono);
   font-size: 0.83rem;
 }
 
@@ -613,35 +631,35 @@ a:focus-visible {
   align-items: center;
   min-height: 24px;
   border-radius: 999px;
-  background: rgba(20, 27, 37, 0.92);
+  background: var(--panel-2);
   color: var(--muted);
   padding: 4px 8px;
-  font-size: 0.72rem;
+  font-size: var(--fs-label);
   font-weight: 800;
-  border: 1px solid rgba(143, 160, 186, 0.12);
+  border: 1px solid var(--border);
 }
 
 .good {
-  color: var(--good);
+  color: var(--gain);
 }
 
 .bad {
-  color: var(--danger);
+  color: var(--loss);
 }
 
 .pill.good {
-  background: color-mix(in srgb, var(--good), transparent 84%);
-  color: color-mix(in srgb, var(--good), white 12%);
+  background: var(--gain-bg);
+  color: var(--gain);
 }
 
 .pill.bad {
-  background: color-mix(in srgb, var(--danger), transparent 84%);
-  color: color-mix(in srgb, var(--danger), white 12%);
+  background: var(--loss-bg);
+  color: var(--loss);
 }
 
 .pill.warn {
-  background: color-mix(in srgb, var(--warning), transparent 84%);
-  color: color-mix(in srgb, var(--warning), white 12%);
+  background: var(--warn-bg);
+  color: var(--warn);
 }
 
 .table-wrap {
@@ -657,19 +675,19 @@ a:focus-visible {
 
 .trade-table th,
 .trade-table td {
-  border-bottom: 1px solid rgba(143, 160, 186, 0.14);
+  border-bottom: 1px solid var(--border);
   padding: 6px 4px;
   text-align: left;
   vertical-align: top;
   overflow-wrap: anywhere;
-  font-size: 0.72rem;
+  font-size: var(--fs-label);
 }
 
 .trade-table th:first-child,
 .trade-table td:first-child {
   width: 98px;
   max-width: 98px;
-  font-size: 0.72rem;
+  font-size: var(--fs-label);
 }
 
 .trade-table th:nth-child(2),
@@ -713,13 +731,13 @@ a:focus-visible {
 
 th {
   color: var(--muted);
-  font-size: 0.7rem;
+  font-size: var(--fs-label);
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
 
 td a {
-  color: var(--foreground);
+  color: var(--text);
 }
 
 td a:hover {
@@ -750,49 +768,49 @@ td a:hover {
 }
 
 .alert {
-  border: 1px solid color-mix(in srgb, var(--danger), transparent 70%);
+  border: 1px solid var(--loss);
   border-radius: 14px;
-  background: rgba(28, 14, 17, 0.95);
-  color: color-mix(in srgb, var(--danger), white 8%);
+  background: var(--loss-bg);
+  color: var(--loss);
   padding: 10px 12px;
 }
 
 .notice {
   display: grid;
   gap: 4px;
-  border: 1px solid color-mix(in srgb, var(--warning), transparent 72%);
+  border: 1px solid var(--warn);
   border-radius: 14px;
-  background: rgba(30, 22, 10, 0.94);
-  color: color-mix(in srgb, var(--warning), white 10%);
+  background: var(--warn-bg);
+  color: var(--warn);
   padding: 10px 12px;
   font-size: 0.86rem;
 }
 
 .success {
-  border-color: color-mix(in srgb, var(--good), transparent 68%);
-  background: rgba(13, 28, 20, 0.95);
-  color: color-mix(in srgb, var(--good), white 10%);
+  border-color: var(--gain);
+  background: var(--gain-bg);
+  color: var(--gain);
 }
 
 .quote-box {
-  border: 1px solid var(--line);
+  border: 1px solid var(--border);
   border-radius: 14px;
-  background: rgba(12, 17, 24, 0.96);
+  background: var(--panel-2);
   padding: 12px;
 }
 
 .debug-panel,
 .raw-panel {
-  border: 1px solid var(--line);
+  border: 1px solid var(--border);
   border-radius: 14px;
-  background: rgba(12, 17, 24, 0.96);
+  background: var(--panel-2);
   padding: 10px 12px;
 }
 
 .debug-panel summary,
 .raw-panel summary {
   cursor: pointer;
-  color: var(--foreground);
+  color: var(--text);
   font-size: 0.82rem;
   font-weight: 800;
 }
@@ -811,7 +829,7 @@ td a:hover {
 
 .raw-panel {
   margin-top: 10px;
-  background: rgba(9, 12, 17, 0.96);
+  background: var(--bg);
 }
 
 pre {
@@ -820,7 +838,7 @@ pre {
   overflow: auto;
   white-space: pre-wrap;
   word-break: break-word;
-  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-family: var(--font-mono);
   font-size: 0.76rem;
 }
 
