@@ -23,7 +23,7 @@ export type TopbarArchiveSummary = {
   createdAt: string;
 };
 
-export function Topbar(props: {
+export type TopbarProps = {
   ledgerOk: { ok: boolean; count: number } | null;
   busy: string;
   dashboardRefreshInterval: number;
@@ -43,7 +43,9 @@ export function Topbar(props: {
   onRestoreArchive: (archive: TopbarArchiveSummary) => void;
   onRenameArchive: (archive: TopbarArchiveSummary) => void;
   onDeleteArchive: (archive: TopbarArchiveSummary) => void;
-}) {
+};
+
+export function Topbar(props: TopbarProps) {
   const {
     ledgerOk,
     busy,
@@ -78,7 +80,7 @@ export function Topbar(props: {
         </span>
       ) : null}
       <MetricStrip items={metricItems} />
-      <button className="button secondary" onClick={() => onRefresh()} title="Refresh portfolio">
+      <button className="button secondary" onClick={onRefresh} title="Refresh portfolio">
         <RefreshCw size={18} />
         Refresh
       </button>
@@ -106,7 +108,7 @@ export function Topbar(props: {
         }}
       />
       <details className="overflow-menu">
-        <summary title="More actions">⋯</summary>
+        <summary aria-label="More actions" title="More actions">⋯</summary>
         <div className="overflow-items">
           <button
             className="button secondary"
@@ -119,7 +121,7 @@ export function Topbar(props: {
           </button>
           <button
             className="button secondary"
-            onClick={() => onExport()}
+            onClick={onExport}
             disabled={busy === "export-data"}
             title="Export local simulator data"
           >
@@ -128,7 +130,7 @@ export function Topbar(props: {
           </button>
           <button
             className="button secondary"
-            onClick={() => onReprocess()}
+            onClick={onReprocess}
             disabled={busy === "reprocess-candidates"}
             title="Reprocess stored wallet activity into missing trade candidates"
           >
@@ -137,7 +139,7 @@ export function Topbar(props: {
           </button>
           <button
             className="button secondary"
-            onClick={() => onArchive()}
+            onClick={onArchive}
             disabled={busy === "archive-paper"}
             title="Archive the current paper trades, ledger, quotes, and copied candidate links"
           >
@@ -188,7 +190,7 @@ export function Topbar(props: {
           ) : null}
           <button
             className="button danger"
-            onClick={() => onReset()}
+            onClick={onReset}
             disabled={busy === "reset-portfolio"}
             title="Reset simulated paper trades and ledger"
           >
