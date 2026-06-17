@@ -10,6 +10,9 @@ paper-trader.db
 /*.png
 .claude/settings.local.json
 .claude/worktrees/
+.chrome-profile/
+.edge-profile/
+.edge-profile2/
 npm-debug.log*
 .superpowers/
 server*.log

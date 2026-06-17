@@ -111,6 +111,21 @@ type CandidateAttention = {
   total: number;
 };
 
+type WalletCopyStats = {
+  copiedTrades: number;
+  openPositions: number;
+  realizedPnlUsd: number;
+  feesUsd: number;
+  closedTrades: number;
+  winningTrades: number;
+  winRate: number | null;
+  score: number | null;
+  scoreLabel: string;
+  lastCopiedAt: string;
+};
+
+type WalletPerformanceFilter = "all" | "strong" | "mixed" | "review" | "unproven";
+
 type PaperArchiveSummary = {
   id: string;
   name: string;
@@ -186,6 +201,7 @@ export default function Home() {
   const [paperArchives, setPaperArchives] = useState<PaperArchiveSummary[]>([]);
   const [selectedArchiveId, setSelectedArchiveId] = useState("");
   const [extraVisibleTrades, setExtraVisibleTrades] = useState(0);
+  const [walletPerformanceFilter, setWalletPerformanceFilter] = useState<WalletPerformanceFilter>("all");
 
   const refresh = async () => {
     const response = await fetch("/api/portfolio", { cache: "no-store" });
@@ -297,6 +313,109 @@ export default function Home() {
     }
     return priced > 0 ? total : null;
   }, [data?.positions, positionPrices]);
+
+  const walletCopyStats = useMemo(() => {
+    const stats = new Map<string, WalletCopyStats>();
+
+    for (const wallet of data?.wallets ?? []) {
+      stats.set(wallet.address.toLowerCase(), {
+        copiedTrades: 0,
+        openPositions: 0,
+        realizedPnlUsd: 0,
+        feesUsd: 0,
+        closedTrades: 0,
+        winningTrades: 0,
+        winRate: null,
+        score: null,
+        scoreLabel: "Unproven",
+        lastCopiedAt: ""
+      });
+    }
+
+    for (const trade of data?.trades ?? []) {
+      const sourceAddress = getCopiedFromWalletAddress(trade.quoteSnapshot);
+      if (!sourceAddress) continue;
+
+      const current = stats.get(sourceAddress.toLowerCase());
+      if (!current) continue;
+
+      current.copiedTrades += 1;
+      current.feesUsd += trade.gasUsd + trade.slippageUsd + trade.dexFeeUsd;
+      current.realizedPnlUsd += trade.realizedPnlUsd;
+      current.lastCopiedAt = !current.lastCopiedAt || trade.createdAt > current.lastCopiedAt ? trade.createdAt : current.lastCopiedAt;
+
+      if (trade.side === "sell") {
+        current.closedTrades += 1;
+        if (trade.realizedPnlUsd > 0) current.winningTrades += 1;
+      }
+    }
+
+    for (const position of data?.positions ?? []) {
+      const source = getPositionCopySource(position, data?.trades ?? [], data?.wallets ?? []);
+      if (!source) continue;
+
+      const current = stats.get(source.address.toLowerCase());
+      if (current) current.openPositions += 1;
+    }
+
+    for (const current of stats.values()) {
+      current.winRate = current.closedTrades > 0 ? current.winningTrades / current.closedTrades : null;
+      const netPnl = current.realizedPnlUsd - current.feesUsd;
+      if (current.closedTrades === 0) {
+        current.score = null;
+        current.scoreLabel = current.copiedTrades > 0 ? "Building" : "Unproven";
+        continue;
+      }
+
+      const winRate = current.winRate ?? 0;
+      const profitScore = netPnl > 0 ? Math.min(25, Math.log10(netPnl + 1) * 8) : netPnl < 0 ? -Math.min(25, Math.log10(Math.abs(netPnl) + 1) * 8) : 0;
+      const winScore = Math.round(winRate * 55);
+      const sampleScore = Math.min(20, current.closedTrades * 4);
+      const rawScore = 45 + profitScore + winScore + sampleScore;
+      current.score = Math.max(0, Math.min(100, Math.round(rawScore)));
+      current.scoreLabel = current.score >= 75 ? "Strong" : current.score >= 55 ? "Mixed" : "Needs review";
+    }
+
+    return stats;
+  }, [data?.positions, data?.trades, data?.wallets]);
+
+  const rankedWallets = useMemo(() => {
+    return [...(data?.wallets ?? [])].sort((left, right) => {
+      const leftStats = walletCopyStats.get(left.address.toLowerCase());
+      const rightStats = walletCopyStats.get(right.address.toLowerCase());
+      const leftScore = leftStats?.score ?? -1;
+      const rightScore = rightStats?.score ?? -1;
+
+      if (leftScore !== rightScore) return rightScore - leftScore;
+      const leftPnl = leftStats?.realizedPnlUsd ?? 0;
+      const rightPnl = rightStats?.realizedPnlUsd ?? 0;
+      if (leftPnl !== rightPnl) return rightPnl - leftPnl;
+
+      const leftCopiedAt = leftStats?.lastCopiedAt ?? "";
+      const rightCopiedAt = rightStats?.lastCopiedAt ?? "";
+      if (leftCopiedAt !== rightCopiedAt) return rightCopiedAt.localeCompare(leftCopiedAt);
+
+      return left.label.localeCompare(right.label);
+    });
+  }, [data?.wallets, walletCopyStats]);
+
+  const walletFilterCounts = useMemo(() => {
+    const counts = { all: 0, strong: 0, mixed: 0, review: 0, unproven: 0 };
+    for (const wallet of rankedWallets) {
+      const bucket = getWalletPerformanceBucket(walletCopyStats.get(wallet.address.toLowerCase()));
+      counts.all += 1;
+      counts[bucket] += 1;
+    }
+    return counts;
+  }, [rankedWallets, walletCopyStats]);
+
+  const filteredWallets = useMemo(
+    () =>
+      walletPerformanceFilter === "all"
+        ? rankedWallets
+        : rankedWallets.filter((wallet) => getWalletPerformanceBucket(walletCopyStats.get(wallet.address.toLowerCase())) === walletPerformanceFilter),
+    [rankedWallets, walletCopyStats, walletPerformanceFilter]
+  );
 
   const allTrades = data?.trades ?? [];
   const todayKey = localDateKey(new Date());
@@ -1082,9 +1201,9 @@ export default function Home() {
       ) : null}
       {message ? <div className="alert success">{message}</div> : null}
 
-      <section className="section grid main-grid">
+      <section className="section dashboard-shell">
         <div className="stack stack-primary">
-          <div className="panel">
+          <div className="panel positions-panel">
             <div className="row">
               <h2>Positions</h2>
               <span className="pill">{data?.positions.length ?? 0} open</span>
@@ -1131,29 +1250,24 @@ export default function Home() {
                         <h3>
                           {position.symbol} <span className="subtle">{position.name}</span>
                         </h3>
-                        {copySource ? (
-                          <p className="subtle">
-                            Copied from{" "}
-                            {copySource.label ? (
-                              <span title={copySource.address}>{copySource.label}</span>
-                            ) : (
-                              <span className="mono" title={copySource.address}>
-                                {shortAddress(copySource.address)}
-                              </span>
-                            )}
-                          </p>
-                        ) : null}
-                        <p>
+                        <div className="position-meta">
+                          {copySource ? (
+                            <span className="pill" title={copySource.address}>
+                              Copied from {copySource.label || shortAddress(copySource.address)}
+                            </span>
+                          ) : (
+                            <span className="pill">Direct position</span>
+                          )}
                           <a
-                            className="hash-link mono"
+                            className="pill position-token-link"
                             href={gmgnTokenUrl(position.chainId, position.tokenAddress)}
                             target="_blank"
                             rel="noreferrer"
                             title="Open token on GMGN"
                           >
-                            {position.tokenAddress}
+                            {shortAddress(position.tokenAddress)}
                           </a>
-                        </p>
+                        </div>
                       </div>
                       <div className="row compact">
                         <span className={position.realizedPnlUsd >= 0 ? "pill good" : "pill bad"}>
@@ -1202,7 +1316,7 @@ export default function Home() {
                   />
                   <UnrealizedPnl value={unrealizedPnlUsd} />
                 </div>
-                    <details className="compact-disclosure">
+                    <details className="compact-disclosure position-disclosure">
                       <summary>Exit rules</summary>
                       {(() => {
                         const failure = exitFailures.find((f) => f.tokenAddress === position.tokenAddress);
@@ -1229,9 +1343,9 @@ export default function Home() {
                           const parts: string[] = [];
                           if (exitRules.takeProfitPct !== null) parts.push(`TP +${exitRules.takeProfitPct}%`);
                           if (exitRules.stopLossPct !== null) parts.push(`SL −${exitRules.stopLossPct}%`);
-                          return <div className="subtle">Watching: {parts.join(" / ")}</div>;
+                          return <div className="subtle position-disclosure-text">Watching: {parts.join(" / ")}</div>;
                         }
-                        return <div className="subtle">No exit rules are currently active for this position.</div>;
+                        return <div className="subtle position-disclosure-text">No exit rules are currently active for this position.</div>;
                       })()}
                     </details>
                   </article>
@@ -1242,34 +1356,211 @@ export default function Home() {
               )}
             </div>
           </div>
-      <div className="panel">
-        <div className="row">
-          <h2>Candidate attention</h2>
-          <span className="pill">{data?.candidateAttention.total ?? 0} saved</span>
+      <details className="panel collapsible-panel trade-panel">
+        <summary className="row collapsible-summary">
+          <h2>Trade ticket</h2>
+          <span className="pill">0x + Uniswap quote</span>
+        </summary>
+        <div className="collapsible-body">
+        <form className="stack trade-ticket-form" onSubmit={previewTrade}>
+          <div className="trade-ticket-bar">
+            <div className="segmented" aria-label="Trade side">
+              {(["buy", "sell"] as TradeSide[]).map((side) => (
+                <button
+                  type="button"
+                  className={tradeForm.side === side ? "active" : ""}
+                  onClick={() => {
+                    setPreview(null);
+                    setFetchedAt(null);
+                    setIsStale(false);
+                    setTradeForm((current) => ({ ...current, side }));
+                  }}
+                  key={side}
+                >
+                  {side.toUpperCase()}
+                </button>
+              ))}
+            </div>
+            <button className="button" type="submit" disabled={busy === "preview"}>
+              {busy === "preview" ? <Loader2 size={18} /> : <Eye size={18} />}
+              Preview
+            </button>
+          </div>
+          <div className="form-grid trade-grid">
+            <div className="field">
+              <label htmlFor="tradeChain">Chain</label>
+              <select
+                id="tradeChain"
+                value={tradeForm.chainId}
+                onChange={(event) => {
+                  setPreview(null);
+                  setFetchedAt(null);
+                  setIsStale(false);
+                  setTradeForm({ ...tradeForm, chainId: event.target.value });
+                }}
+              >
+                <option value="8453">Base</option>
+                <option value="1">Ethereum</option>
+              </select>
+            </div>
+            <div className="field full">
+              <label htmlFor="tokenAddress">ERC-20 contract</label>
+              <input
+                id="tokenAddress"
+                value={tradeForm.tokenAddress}
+                onChange={(event) => setTradeForm({ ...tradeForm, tokenAddress: event.target.value })}
+                placeholder="0x..."
+              />
+            </div>
+            {tradeForm.side === "buy" ? (
+              <div className="field">
+                <label htmlFor="usdAmount">USD amount</label>
+                <input
+                  id="usdAmount"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={tradeForm.usdAmount}
+                  onChange={(event) => setTradeForm({ ...tradeForm, usdAmount: event.target.value })}
+                />
+              </div>
+            ) : (
+              <div className="field">
+                <label htmlFor="tokenQuantity">Token quantity</label>
+                <input
+                  id="tokenQuantity"
+                  type="number"
+                  min="0"
+                  step="any"
+                  value={tradeForm.tokenQuantity || selectedPosition?.quantity || ""}
+                  onChange={(event) => setTradeForm({ ...tradeForm, tokenQuantity: event.target.value })}
+                />
+              </div>
+            )}
+            <div className="field">
+              <label htmlFor="slippageBps">Slippage tolerance bps</label>
+              <input
+                id="slippageBps"
+                type="number"
+                min="0"
+                max="5000"
+                value={tradeForm.slippageBps}
+                onChange={(event) => setTradeForm({ ...tradeForm, slippageBps: event.target.value })}
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="gasBufferBps">Gas buffer bps</label>
+              <input
+                id="gasBufferBps"
+                type="number"
+                min="0"
+                max="10000"
+                value={tradeForm.gasBufferBps}
+                onChange={(event) => setTradeForm({ ...tradeForm, gasBufferBps: event.target.value })}
+              />
+            </div>
+          </div>
+        </form>
+
+        {preview ? (
+          <div className="quote-box">
+            {isStale && (
+              <div className="alert">
+                ⚠ Quote is over 2 minutes old — prices may have moved. Consider refreshing.
+              </div>
+            )}
+            <div className="row">
+              <div>
+                <h3>
+                  {preview.side.toUpperCase()} {preview.token.symbol}
+                </h3>
+                <p className="subtle">
+                  {formatNumber(preview.quantity, 6)} tokens at {formatUsdPrice(preview.priceUsd)}
+                </p>
+              </div>
+              <div className="row compact quote-badges">
+                <span className="pill">{preview.token.name}</span>
+                <span className="pill">{preview.side === "buy" ? "Buy" : "Sell"}</span>
+                {preview.warnings.length ? <span className="pill warn">{preview.warnings.length} warnings</span> : null}
+              </div>
+            </div>
+            <div className="grid dashboard-grid quote-metrics">
+              <Mini label="Notional" value={formatUsd(preview.notionalUsd)} />
+              <Mini label="Gas" value={formatUsd(preview.gasUsd)} />
+              <Mini label="0x fee" value={formatUsd(preview.dexFeeUsd)} />
+              <Mini
+                label="Price impact + pool fees"
+                value={formatNullableUsd(getImplicitSwapCostUsd(preview.quoteSnapshot))}
+              />
+              <Mini
+                label={preview.side === "buy" ? "All-in cost" : "Net proceeds"}
+                value={formatUsd(preview.side === "buy" ? preview.totalCostUsd : preview.sellProceedsUsd)}
+              />
+            </div>
+            <details className="compact-disclosure quote-disclosure">
+              <summary>Cost methodology</summary>
+              <p className="subtle quote-method">
+                Explicit fees are gas plus any provider-reported 0x/integrator fee. Price impact + pool fees is
+                inferred from the gap between this trade quote and a small reference quote, so it may also absorb
+                route costs embedded in the quoted output.
+              </p>
+              {getValuedFeeUsd(preview.quoteSnapshot) > 0 ? (
+                <p className="subtle quote-method">
+                  0x fee includes {formatUsd(getValuedFeeUsd(preview.quoteSnapshot))} valued from a non-USDC
+                  token.
+                </p>
+              ) : null}
+            </details>
+            {preview.warnings.length ? (
+              <details className="compact-disclosure quote-warnings">
+                <summary>{preview.warnings.length} quote warning{preview.warnings.length === 1 ? "" : "s"}</summary>
+                <div className="notice compact-notice">
+                  {preview.warnings.map((warning) => (
+                    <p key={warning}>{warning}</p>
+                  ))}
+                </div>
+              </details>
+            ) : null}
+            <QuoteDebug snapshot={preview.quoteSnapshot} />
+            <div className="trade-preview-actions">
+              <button className="button" onClick={executeTrade} disabled={busy === "execute"}>
+                {busy === "execute" ? <Loader2 size={18} /> : <Send size={18} />}
+                Execute paper trade
+              </button>
+            </div>
+          </div>
+        ) : null}
         </div>
-        <CandidateAttentionStrip summary={data?.candidateAttention} />
-      </div>
-          <div className="panel">
+      </details>
+          <div className="panel wallet-activity-panel">
             <div className="row">
               <h2>Wallet activity</h2>
-              <span className="pill">{candidates.length} candidates</span>
-              <span className="pill">{todayVisibleActivityCount} today</span>
-            </div>
-            <CandidateStatusSummary stats={candidateStats} />
-            {activityContext ? (
-              <p className="subtle">
-                {activityContext.source === "cached"
-                  ? `Showing ${activityContext.fetched} cached ETH/ERC-20 transfers for ${activityContext.label}.`
-                  : `${activityContext.label} fetched ${activityContext.fetched} ETH/ERC-20 transfers from Ethereum and Base.`}
-              </p>
-            ) : null}
-            {activityContext?.warnings?.length ? (
-              <div className="notice">
-                {activityContext.warnings.map((warning) => (
-                  <p key={warning}>{warning}</p>
-                ))}
-              </div>
-            ) : null}
+            <span className="pill">{candidates.length} candidates</span>
+            <span className="pill">{todayVisibleActivityCount} today</span>
+            <span className="pill">Ranked by wallet score</span>
+          </div>
+          <div className="tab-row wallet-filter-row" role="tablist" aria-label="Wallet performance filter">
+            {(
+              [
+                ["all", "All"],
+                ["strong", "Strong"],
+                ["mixed", "Mixed"],
+                ["review", "Needs review"],
+                ["unproven", "Unproven"]
+              ] as Array<[WalletPerformanceFilter, string]>
+            ).map(([filter, label]) => (
+              <button
+                key={filter}
+                type="button"
+                className={`tab-button${walletPerformanceFilter === filter ? " active" : ""}`}
+                onClick={() => setWalletPerformanceFilter(filter)}
+                aria-pressed={walletPerformanceFilter === filter}
+              >
+                {label} <span className="pill">{walletFilterCounts[filter]}</span>
+              </button>
+            ))}
+          </div>
+          <WalletActivitySummary stats={candidateStats} context={activityContext} />
             {candidates.length ? (
               <CandidateList
                 candidates={candidates}
@@ -1327,7 +1618,7 @@ export default function Home() {
               </button>
             ) : null}
           </div>
-          <details className="panel collapsible-panel">
+          <details className="panel collapsible-panel past-trades-panel">
             <summary className="row collapsible-summary">
                 <h2>Past trades</h2>
                 <span className="pill">{todayTrades.length} today</span>
@@ -1347,11 +1638,12 @@ export default function Home() {
                             <th>Time</th>
                             <th>Side</th>
                             <th>Token</th>
-                            <th>Signals</th>
-                            <th>Spent</th>
+                            <th>Sig</th>
+                            <th>Outlay</th>
                             <th>Price</th>
-                            <th>Costs</th>
-                            <th>PnL / %</th>
+                            <th>Fee</th>
+                            <th>P/L</th>
+                            <th>%P/L</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -1380,12 +1672,21 @@ export default function Home() {
                               <FeeBreakdown trade={trade} />
                             </td>
                             <td>
-                              <span className={trade.realizedPnlUsd >= 0 ? "good" : "bad"}>
-                                {formatUsd(trade.realizedPnlUsd)}
-                              </span>{" "}
-                              <span className={tradeReturnClassName(trade)} title="Percent gain or loss on the closed trade">
-                                {formatNullablePercent(tradeReturnPercent(trade))}
-                              </span>
+                              <div className="pnl-row">
+                                <strong className={trade.realizedPnlUsd >= 0 ? "good" : "bad"}>
+                                  {formatUsd(trade.realizedPnlUsd)}
+                                </strong>
+                              </div>
+                            </td>
+                            <td>
+                              <div className="pnl-row pnl-row-percent">
+                                <span
+                                  className={tradeReturnClassName(trade)}
+                                  title="Percent gain or loss on the closed trade"
+                                >
+                                  {formatNullablePercent(tradeReturnPercent(trade))}
+                                </span>
+                              </div>
                             </td>
                           </tr>
                         ))}
@@ -1412,7 +1713,7 @@ export default function Home() {
           </details>
         </div>
         <div className="stack stack-secondary">
-          <details className="panel collapsible-panel" open>
+          <details className="panel collapsible-panel watchlist-panel" open>
             <summary className="row collapsible-summary">
               <h2>Watchlist</h2>
               <span className="pill">{data?.wallets.length ?? 0} wallets</span>
@@ -1461,221 +1762,83 @@ export default function Home() {
               </button>
             </form>
           </details>
-          {data && !data.copySettings.autoCopy && data.wallets.some((wallet) => wallet.autoCopy) ? (
-            <p className="subtle">
-              Global auto-copy is off, so per-wallet Auto-copy toggles will not execute trades until it is enabled in Copy settings.
-            </p>
-          ) : null}
-          <div className="list">
-            {data?.wallets.map((wallet) => (
-              <article className="card wallet-card" key={wallet.address}>
-                <div className="row">
-                  <div>
-                    <h3>{wallet.label}</h3>
-                    <p className="mono subtle">{wallet.address}</p>
-                    {wallet.notes ? <p>{wallet.notes}</p> : null}
-                  </div>
-                  <div className="row compact wallet-actions">
-                    <label className="subtle" title="Auto-copy decoded buys from this wallet">
-                      <input
-                        type="checkbox"
-                        checked={wallet.autoCopy === true}
-                        disabled={busy === `autocopy-${wallet.address}`}
-                        onChange={(e) => toggleWalletAutoCopy(wallet, e.target.checked)}
-                      />{" "}
-                      Auto-copy
-                    </label>
-                    <button
-                      className="button secondary"
-                      onClick={() => fetchActivity(wallet)}
-                      disabled={busy === wallet.address || busy === `delete-${wallet.address}`}
-                      title="Fetch wallet activity"
-                    >
-                      {busy === wallet.address ? <Loader2 size={18} /> : <WalletCards size={18} />}
-                      Activity
-                    </button>
-                    <button
-                      className="icon-button danger"
-                      onClick={() => deleteWatchedWallet(wallet)}
-                      disabled={busy === wallet.address || busy === `delete-${wallet.address}`}
-                      title="Delete wallet"
-                    >
-                      {busy === `delete-${wallet.address}` ? <Loader2 size={18} /> : <Trash2 size={18} />}
-                    </button>
-                  </div>
-                </div>
-              </article>
-            ))}
-          </div>
-          <details className="panel collapsible-panel">
-            <summary className="row collapsible-summary">
-              <h2>Trade ticket</h2>
-              <span className="pill">0x + Uniswap quote</span>
-            </summary>
-            <div className="collapsible-body">
-            <form className="stack" onSubmit={previewTrade}>
-              <div className="segmented" aria-label="Trade side">
-                {(["buy", "sell"] as TradeSide[]).map((side) => (
-                  <button
-                    type="button"
-                    className={tradeForm.side === side ? "active" : ""}
-                    onClick={() => {
-                      setPreview(null);
-                      setFetchedAt(null);
-                      setIsStale(false);
-                      setTradeForm((current) => ({ ...current, side }));
-                    }}
-                    key={side}
-                  >
-                    {side.toUpperCase()}
-                  </button>
-                ))}
-              </div>
-              <div className="form-grid">
-                <div className="field">
-                  <label htmlFor="tradeChain">Chain</label>
-                  <select
-                    id="tradeChain"
-                    value={tradeForm.chainId}
-                    onChange={(event) => {
-                      setPreview(null);
-                      setFetchedAt(null);
-                      setIsStale(false);
-                      setTradeForm({ ...tradeForm, chainId: event.target.value });
-                    }}
-                  >
-                    <option value="8453">Base</option>
-                    <option value="1">Ethereum</option>
-                  </select>
-                </div>
-                <div className="field full">
-                  <label htmlFor="tokenAddress">ERC-20 contract</label>
-                  <input
-                    id="tokenAddress"
-                    value={tradeForm.tokenAddress}
-                    onChange={(event) => setTradeForm({ ...tradeForm, tokenAddress: event.target.value })}
-                    placeholder="0x..."
-                  />
-                </div>
-                {tradeForm.side === "buy" ? (
-                  <div className="field">
-                    <label htmlFor="usdAmount">USD amount</label>
-                    <input
-                      id="usdAmount"
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={tradeForm.usdAmount}
-                      onChange={(event) => setTradeForm({ ...tradeForm, usdAmount: event.target.value })}
-                    />
-                  </div>
-                ) : (
-                  <div className="field">
-                    <label htmlFor="tokenQuantity">Token quantity</label>
-                    <input
-                      id="tokenQuantity"
-                      type="number"
-                      min="0"
-                      step="any"
-                      value={tradeForm.tokenQuantity || selectedPosition?.quantity || ""}
-                      onChange={(event) => setTradeForm({ ...tradeForm, tokenQuantity: event.target.value })}
-                    />
-                  </div>
-                )}
-                <div className="field">
-                  <label htmlFor="slippageBps">Slippage tolerance bps</label>
-                  <input
-                    id="slippageBps"
-                    type="number"
-                    min="0"
-                    max="5000"
-                    value={tradeForm.slippageBps}
-                    onChange={(event) => setTradeForm({ ...tradeForm, slippageBps: event.target.value })}
-                  />
-                </div>
-                <div className="field">
-                  <label htmlFor="gasBufferBps">Gas buffer bps</label>
-                  <input
-                    id="gasBufferBps"
-                    type="number"
-                    min="0"
-                    max="10000"
-                    value={tradeForm.gasBufferBps}
-                    onChange={(event) => setTradeForm({ ...tradeForm, gasBufferBps: event.target.value })}
-                  />
-                </div>
-              </div>
-              <button className="button" type="submit" disabled={busy === "preview"}>
-                {busy === "preview" ? <Loader2 size={18} /> : <Eye size={18} />}
-                Preview
-              </button>
-            </form>
-
-            {preview ? (
-              <div className="quote-box stack">
-                {isStale && (
-                  <div className="alert">
-                    ⚠ Quote is over 2 minutes old — prices may have moved. Consider refreshing.
-                  </div>
-                )}
-                <div className="row">
-                  <div>
-                    <h3>
-                      {preview.side.toUpperCase()} {preview.token.symbol}
-                    </h3>
-                    <p className="subtle">
-                      {formatNumber(preview.quantity, 6)} tokens at {formatUsdPrice(preview.priceUsd)}
-                    </p>
-                  </div>
-                  <span className="pill">{preview.token.name}</span>
-                </div>
-                <div className="grid dashboard-grid">
-                  <Mini label="Notional" value={formatUsd(preview.notionalUsd)} />
-                  <Mini label="Gas" value={formatUsd(preview.gasUsd)} />
-                  <Mini label="0x fee" value={formatUsd(preview.dexFeeUsd)} />
-                  <Mini
-                    label="Price impact + pool fees"
-                    value={formatNullableUsd(getImplicitSwapCostUsd(preview.quoteSnapshot))}
-                  />
-                  <Mini
-                    label={preview.side === "buy" ? "All-in cost" : "Net proceeds"}
-                    value={formatUsd(preview.side === "buy" ? preview.totalCostUsd : preview.sellProceedsUsd)}
-                  />
-                </div>
-                <details className="compact-disclosure">
-                  <summary>Cost methodology</summary>
-                  <p className="subtle">
-                    Explicit fees are gas plus any provider-reported 0x/integrator fee. Price impact + pool fees is
-                    inferred from the gap between this trade quote and a small reference quote, so it may also absorb
-                    route costs embedded in the quoted output.
-                  </p>
-                  {getValuedFeeUsd(preview.quoteSnapshot) > 0 ? (
-                    <p className="subtle">
-                      0x fee includes {formatUsd(getValuedFeeUsd(preview.quoteSnapshot))} valued from a non-USDC
-                      token.
-                    </p>
-                  ) : null}
-                </details>
-                {preview.warnings.map((warning) => (
-                  <div className="alert" key={warning}>
-                    {warning}
-                  </div>
-                ))}
-                <QuoteDebug snapshot={preview.quoteSnapshot} />
-                <button className="button" onClick={executeTrade} disabled={busy === "execute"}>
-                  {busy === "execute" ? <Loader2 size={18} /> : <Send size={18} />}
-                  Execute paper trade
-                </button>
-              </div>
+          <div className="wallet-list-panel">
+            {data && !data.copySettings.autoCopy && data.wallets.some((wallet) => wallet.autoCopy) ? (
+              <p className="subtle">
+                Global auto-copy is off, so per-wallet Auto-copy toggles will not execute trades until it is enabled in Copy settings.
+              </p>
             ) : null}
+            <div className="list">
+              {filteredWallets.length ? filteredWallets.map((wallet) => (
+                <article className="card wallet-card" key={wallet.address}>
+                  <div className="row">
+                    <div>
+                      <h3>{wallet.label}</h3>
+                      <p className="mono subtle">{wallet.address}</p>
+                      {wallet.notes ? <p>{wallet.notes}</p> : null}
+                      <WalletCopyStatsStrip
+                        stats={
+                          walletCopyStats.get(wallet.address.toLowerCase()) ?? {
+                            copiedTrades: 0,
+                            openPositions: 0,
+                            realizedPnlUsd: 0,
+                            feesUsd: 0,
+                            closedTrades: 0,
+                            winningTrades: 0,
+                            winRate: null,
+                            score: null,
+                            scoreLabel: "Unproven",
+                            lastCopiedAt: ""
+                          }
+                        }
+                      />
+                    </div>
+                    <div className="row compact wallet-actions">
+                      <label className="subtle" title="Auto-copy decoded buys from this wallet">
+                        <input
+                          type="checkbox"
+                          checked={wallet.autoCopy === true}
+                          disabled={busy === `autocopy-${wallet.address}`}
+                          onChange={(e) => toggleWalletAutoCopy(wallet, e.target.checked)}
+                        />{" "}
+                        Auto-copy
+                      </label>
+                      <button
+                        className="button secondary"
+                        onClick={() => fetchActivity(wallet)}
+                        disabled={busy === wallet.address || busy === `delete-${wallet.address}`}
+                        title="Fetch wallet activity"
+                      >
+                        {busy === wallet.address ? <Loader2 size={18} /> : <WalletCards size={18} />}
+                        Activity
+                      </button>
+                      <button
+                        className="icon-button danger"
+                        onClick={() => deleteWatchedWallet(wallet)}
+                        disabled={busy === wallet.address || busy === `delete-${wallet.address}`}
+                        title="Delete wallet"
+                      >
+                        {busy === `delete-${wallet.address}` ? <Loader2 size={18} /> : <Trash2 size={18} />}
+                      </button>
+                    </div>
+                  </div>
+                </article>
+              )) : (
+                <p className="subtle">No wallets match the selected performance tier.</p>
+              )}
             </div>
-          </details>
-          <details className="panel collapsible-panel">
+          </div>
+          <details className="panel collapsible-panel copy-settings-panel">
             <summary className="row collapsible-summary">
               <h2>Copy settings</h2>
               <span className="pill">{copySettingsForm.mode === "fixedUsd" ? "Fixed USD" : "Percent"}</span>
             </summary>
             <form className="stack collapsible-body" onSubmit={saveCopySettings}>
+              <div className="settings-overview">
+                <span className="pill">{copySettingsForm.autoCopy ? "Auto-copy on" : "Auto-copy off"}</span>
+                <span className="pill">{copySettingsForm.insufficientCashBehavior === "cap" ? "Cash cap" : "Cash skip"}</span>
+                <span className="pill">{copySettingsForm.mode === "fixedUsd" ? "Fixed size" : "Percent size"}</span>
+              </div>
               <div className="form-grid">
                 <div className="field">
                   <label htmlFor="autoCopy">Auto-copy</label>
@@ -1715,7 +1878,7 @@ export default function Home() {
                         insufficientCashBehavior: event.target.value as CopySettingsForm["insufficientCashBehavior"]
                       })
                     }
-                  >
+                    >
                     <option value="skip">Skip</option>
                     <option value="cap">Cap</option>
                   </select>
@@ -1744,7 +1907,7 @@ export default function Home() {
                       setCopySettingsForm({ ...copySettingsForm, percentOfSource: event.target.value })
                     }
                   />
-                  <details className="compact-disclosure">
+                  <details className="compact-disclosure settings-note">
                     <summary>What this uses</summary>
                     <p className="subtle">
                       In percent mode, the app copies this share of the source wallet&apos;s trade size. For buys, it
@@ -1795,7 +1958,8 @@ export default function Home() {
                     id="allowlist"
                     value={copySettingsForm.allowlist}
                     onChange={(event) => setCopySettingsForm({ ...copySettingsForm, allowlist: event.target.value })}
-                    placeholder="0x..."
+                    placeholder="0x...\n0x..."
+                    rows={4}
                   />
                 </div>
                 <div className="field full">
@@ -1804,7 +1968,8 @@ export default function Home() {
                     id="blocklist"
                     value={copySettingsForm.blocklist}
                     onChange={(event) => setCopySettingsForm({ ...copySettingsForm, blocklist: event.target.value })}
-                    placeholder="0x..."
+                    placeholder="0x...\n0x..."
+                    rows={4}
                   />
                 </div>
               </div>
@@ -1814,7 +1979,7 @@ export default function Home() {
               </button>
             </form>
           </details>
-          <details className="panel collapsible-panel">
+          <details className="panel collapsible-panel auto-exit-panel">
             <summary className="row collapsible-summary">
               <h2>Auto-exit rules</h2>
               <span className="pill">{exitRules.enabled ? "On" : "Off"}</span>
@@ -1897,6 +2062,13 @@ export default function Home() {
               </button>
             </form>
           </details>
+          <div className="panel candidate-attention-panel">
+            <div className="row">
+              <h2>Candidate attention</h2>
+              <span className="pill">{data?.candidateAttention.total ?? 0} saved</span>
+            </div>
+            <CandidateAttentionStrip summary={data?.candidateAttention} />
+          </div>
         </div>
       </section>
     </main>
@@ -1941,6 +2113,49 @@ function CandidateStatusSummary({ stats }: { stats: ReturnType<typeof getCandida
   );
 }
 
+function WalletActivitySummary({
+  stats,
+  context
+}: {
+  stats: ReturnType<typeof getCandidateStats>;
+  context: {
+    label: string;
+    address: string;
+    fetched: number;
+    warnings: string[];
+    source: "fetched" | "cached";
+  } | null;
+}) {
+  const summaryText = context
+    ? context.source === "cached"
+      ? `Showing ${context.fetched} cached transfers for ${context.label}.`
+      : `${context.label} fetched ${context.fetched} transfers from Ethereum and Base.`
+    : "No wallet activity is loaded yet.";
+
+  return (
+    <div className="wallet-activity-summary">
+      <div className="status-strip" aria-label="Candidate status counts">
+        <span className="pill good">{stats.copied} copied</span>
+        <span className="pill good">{stats.decoded} decoded</span>
+        <span className="pill warn">{stats.review} review</span>
+        <span className="pill bad">{stats.failed} failed</span>
+        <span className="pill bad">{stats.skipped} skipped</span>
+      </div>
+      <p className="subtle wallet-activity-summary-text">{summaryText}</p>
+      {context?.warnings?.length ? (
+        <details className="compact-disclosure wallet-activity-warnings">
+          <summary>{context.warnings.length} warning{context.warnings.length === 1 ? "" : "s"}</summary>
+          <div className="notice compact-notice">
+            {context.warnings.map((warning) => (
+              <p key={warning}>{warning}</p>
+            ))}
+          </div>
+        </details>
+      ) : null}
+    </div>
+  );
+}
+
 function CandidateAttentionStrip({ summary }: { summary?: CandidateAttention }) {
   const counts = summary ?? { ready: 0, review: 0, blocked: 0, failed: 0, copied: 0, total: 0 };
   return (
@@ -1954,23 +2169,65 @@ function CandidateAttentionStrip({ summary }: { summary?: CandidateAttention }) 
   );
 }
 
+function WalletCopyStatsStrip({ stats }: { stats: WalletCopyStats }) {
+  return (
+    <div className="wallet-stats">
+      <div className="status-strip" aria-label="Copied trade stats">
+        <span
+          className={`pill ${stats.score === null ? "" : stats.score >= 75 ? "good" : stats.score >= 55 ? "warn" : "bad"}`}
+          title="Wallet performance score derived from copied trade outcomes."
+        >
+          {stats.score === null ? stats.scoreLabel : `${stats.scoreLabel} ${stats.score}`}
+        </span>
+        <span className="pill">{stats.copiedTrades} copied trades</span>
+        <span className="pill">{stats.openPositions} open positions</span>
+        <span
+          className={`pill ${stats.realizedPnlUsd >= 0 ? "good" : "bad"}`}
+          title="Realized P&L recorded on copied trades."
+        >
+          P&amp;L {formatUsd(stats.realizedPnlUsd)}
+        </span>
+        <span className="pill" title="Closed copied trades divided into winners and losers.">
+          Win {stats.winRate !== null ? `${formatPercent(stats.winRate)}` : "—"}
+        </span>
+        <span className="pill" title="Explicit fees plus any legacy slip buffer recorded on copied trades.">
+          Fees {formatUsd(stats.feesUsd)}
+        </span>
+      </div>
+      {stats.lastCopiedAt ? <TimestampLine timestamp={stats.lastCopiedAt} compact /> : null}
+    </div>
+  );
+}
+
+function getWalletPerformanceBucket(stats?: WalletCopyStats) {
+  if (!stats || stats.score === null) {
+    return stats?.copiedTrades ? "unproven" : "unproven";
+  }
+  if (stats.score >= 75) return "strong";
+  if (stats.score >= 55) return "mixed";
+  return "review";
+}
+
 function FeeBreakdown({ trade }: { trade: Trade }) {
   const snapshot = parseSnapshot(trade.quoteSnapshot);
   const implicitSwapCostUsd = getImplicitSwapCostUsd(snapshot);
   const displayedSwapCostUsd = implicitSwapCostUsd ?? legacySlippageBufferUsd(trade, snapshot);
   const totalCosts = trade.gasUsd + trade.dexFeeUsd + displayedSwapCostUsd;
   const valuedFeeUsd = getValuedFeeUsd(snapshot);
+  const detailTitle = [
+    `Gas ${formatUsd(trade.gasUsd)}`,
+    `0x ${formatUsd(trade.dexFeeUsd)}`,
+    `${isLegacySlippageTrade(snapshot) ? "Slip buffer" : "Swap"} ${formatNullableUsd(displayedSwapCostUsd)}`
+  ].join(" · ");
   return (
-    <div className="fee-stack">
+    <div className="fee-stack" title={detailTitle}>
       <strong>{formatUsd(totalCosts)}</strong>
-      <span>Gas {formatUsd(trade.gasUsd)}</span>
-      <span>0x {formatUsd(trade.dexFeeUsd)}</span>
-      <span>{isLegacySlippageTrade(snapshot) ? "Slip buffer" : "Swap"} {formatNullableUsd(displayedSwapCostUsd)}</span>
-      {valuedFeeUsd > 0 ? (
-        <span className="subtle" title="Portion of the 0x fee that 0x reported in a non-USDC token and the simulator valued into USD.">
-          incl. {formatUsd(valuedFeeUsd)} valued
-        </span>
-      ) : null}
+      <div className="fee-stack-list">
+        <span>Gas {formatUsd(trade.gasUsd)}</span>
+        <span>0x {formatUsd(trade.dexFeeUsd)}</span>
+        <span>{isLegacySlippageTrade(snapshot) ? "Slip" : "Swap"} {formatNullableUsd(displayedSwapCostUsd)}</span>
+        {valuedFeeUsd > 0 ? <span className="subtle">+ {formatUsd(valuedFeeUsd)} valued</span> : null}
+      </div>
     </div>
   );
 }
@@ -1979,18 +2236,25 @@ function TradeSignals({ trade }: { trade: Trade }) {
   const signals = getTradeSignals(trade);
   if (!signals.length) return <span className="subtle">-</span>;
 
+  const visibleSignals = signals.slice(0, 2);
+  const extraCount = signals.length - visibleSignals.length;
+  const title = signals.map((signal) => `${signal.label}: ${signal.title}`).join(" | ");
+
   return (
-    <div className="signal-stack">
-      {signals.map((signal) => (
+    <div className="signal-stack signal-stack-compact" title={title}>
+      {visibleSignals.map((signal) => (
         <span className={`pill ${signal.tone}`} title={signal.title} key={signal.label}>
           {signal.label}
         </span>
       ))}
+      {extraCount > 0 ? <span className="pill">{`+${extraCount}`}</span> : null}
     </div>
   );
 }
 
 function CopyResultPanel({ result }: { result: CopyResult }) {
+  const suggestion = copyResultSuggestion(result);
+
   return (
     <div className={result.status === "copied" ? "copy-result success-result" : "copy-result failed-result"}>
       <div className="row">
@@ -2004,19 +2268,26 @@ function CopyResultPanel({ result }: { result: CopyResult }) {
         {result.tradeId ? <span className="pill good">{shortId(result.tradeId)}</span> : null}
       </div>
       {result.status === "copied" ? (
-        <div className="grid dashboard-grid">
-          <Mini label="Paper side" value={result.side ?? "-"} />
-          <Mini
-            label="Size"
-            value={
-              result.quantity !== undefined && result.tokenSymbol
-                ? `${formatNumber(result.quantity, 6)} ${result.tokenSymbol}`
-                : "-"
-            }
-          />
-          <Mini label="Notional" value={formatUsd(result.notionalUsd ?? 0)} />
-          <Mini label="Fees" value={formatUsd(result.totalFeesUsd ?? 0)} />
-        </div>
+        <>
+          <div className="grid dashboard-grid">
+            <Mini label="Paper side" value={result.side ?? "-"} />
+            <Mini
+              label="Size"
+              value={
+                result.quantity !== undefined && result.tokenSymbol
+                  ? `${formatNumber(result.quantity, 6)} ${result.tokenSymbol}`
+                  : "-"
+              }
+            />
+            <Mini label="Notional" value={formatUsd(result.notionalUsd ?? 0)} />
+            <Mini label="Fees" value={formatUsd(result.totalFeesUsd ?? 0)} />
+            {result.cashCap ? <Mini label="Requested" value={formatUsd(result.cashCap.fromUsd)} /> : null}
+            {result.cashCap ? <Mini label="Cash-capped" value={formatUsd(result.cashCap.toUsd)} /> : null}
+          </div>
+          {suggestion ? <p className="copy-result-note">{suggestion}</p> : null}
+        </>
+      ) : suggestion ? (
+        <p className="copy-result-note">{suggestion}</p>
       ) : null}
     </div>
   );
@@ -2074,6 +2345,28 @@ function candidateCopyButtonLabel(candidate: TradeCandidate, copyResult?: CopyRe
 function candidateCopyButtonTitle(candidate: TradeCandidate, copyResult?: CopyResult) {
   const lastStatus = copyResult?.status ?? candidate.lastCopyStatus;
   return lastStatus === "failed" ? "Retry copy into paper portfolio" : "Copy into paper portfolio";
+}
+
+function copyResultSuggestion(result: CopyResult) {
+  if (result.status === "copied" && result.cashCap) {
+    return `The simulator resized this buy from ${formatUsd(result.cashCap.fromUsd)} to ${formatUsd(result.cashCap.toUsd)} so the final total would fit the current paper cash balance.`;
+  }
+
+  if (result.status !== "failed") return "";
+
+  const suggestions: Record<string, string> = {
+    "already-copied": "This source transaction is already linked to a paper trade.",
+    "blocked-token": "Adjust the copy allowlist or blocklist before retrying this token.",
+    "insufficient-cash": "Lower the copy size or replenish paper cash before retrying.",
+    "missing-position": "This sell can only be copied after the paper portfolio holds the same token on the same chain.",
+    "missing-token-address": "This transaction still needs manual review because the copied token could not be identified cleanly.",
+    "no-liquidity": "Try again later or with a smaller size. The route was not liquid enough at the current quote.",
+    "token-metadata": "Refresh wallet activity or resolve the token manually before retrying.",
+    "unsupported-pattern": "This transaction shape is still outside the supported copy flow and needs manual review.",
+    unknown: "Inspect the candidate details and trade preview before retrying."
+  };
+
+  return suggestions[result.bucket ?? "unknown"] ?? suggestions.unknown;
 }
 
 function settingsToForm(settings: CopySettings | typeof DEFAULT_COPY_SETTINGS): CopySettingsForm {
@@ -2210,7 +2503,7 @@ function CandidateList({
             <article className="candidate" key={candidate.id}>
               <div className="row">
                 <div>
-                  <div className="activity-meta">
+                  <div className="activity-meta candidate-meta">
                     <span className={candidateStatusClass(candidate.status)}>{candidate.status}</span>
                     <span className={`pill ${trust.tone}`} title={trust.title}>{trust.label}</span>
                     <span className="pill">{candidate.chainName}</span>
@@ -2473,6 +2766,15 @@ function getPositionCopySource(
   return { address, label };
 }
 
+function getCopiedFromWalletAddress(snapshotValue: string) {
+  const snapshot = parseSnapshot(snapshotValue);
+  const copiedFrom = snapshot.copiedFrom;
+  if (!copiedFrom || typeof copiedFrom !== "object" || Array.isArray(copiedFrom)) return "";
+
+  const address = (copiedFrom as Record<string, unknown>).walletAddress;
+  return typeof address === "string" ? address : "";
+}
+
 function shortAddress(address: string) {
   if (address.length <= 12) return address;
   return `${address.slice(0, 6)}...${address.slice(-4)}`;
@@ -2514,10 +2816,15 @@ function QuoteDebug({ snapshot }: { snapshot: Record<string, unknown> }) {
     ["Valued 0x fee", debug.valuedFeeUsd ? formatUsd(debug.valuedFeeUsd) : ""],
     ["Unpriced fee tokens", getStillUnpricedFeeTokens(snapshot).join(", ")]
   ].filter((row): row is [string, string] => Boolean(row[1]));
+  const summaryBits = [debug.provider, debug.endpoint ? shortEndpoint(debug.endpoint) : "", debug.chainId ? `Chain ${debug.chainId}` : ""].filter(Boolean);
 
   return (
     <details className="debug-panel">
-      <summary>Quote details</summary>
+      <summary className="debug-summary">
+        <span>Quote details</span>
+        <span className="pill">{rows.length} fields</span>
+      </summary>
+      {summaryBits.length ? <p className="subtle debug-summary-line">{summaryBits.join(" · ")}</p> : null}
       <div className="debug-grid">
         {rows.map(([label, value]) => (
           <div key={label}>
@@ -2526,14 +2833,27 @@ function QuoteDebug({ snapshot }: { snapshot: Record<string, unknown> }) {
           </div>
         ))}
       </div>
+      {debug.assumptions?.implicitSwapCostUsd !== undefined ? (
+        <p className="subtle debug-footnote">
+          The quote view is condensed to keep the trade ticket readable. Open this panel for the full input and fee assumptions.
+        </p>
+      ) : null}
       {debug.rawQuote ? (
         <details className="raw-panel">
-          <summary>Raw 0x response</summary>
+          <summary>Raw response</summary>
           <pre>{JSON.stringify(debug.rawQuote, null, 2)}</pre>
         </details>
       ) : null}
     </details>
   );
+}
+
+function shortEndpoint(endpoint: string) {
+  try {
+    return new URL(endpoint).pathname.replace(/^\/+/, "");
+  } catch {
+    return endpoint.length > 24 ? `${endpoint.slice(0, 21)}...` : endpoint;
+  }
 }
 
 function formatLocalTimestamp(timestamp: string) {

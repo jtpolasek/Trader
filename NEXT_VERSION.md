@@ -1,5 +1,40 @@
 # Next Version Handoff
 
+## Current UI Work
+
+In progress: dashboard layout reflow so the top row is:
+
+- `Positions`
+- `Trade ticket`
+- `Watchlist`
+
+The current implementation work is in:
+
+- `src/app/page.tsx`
+- `src/app/globals.css`
+
+What I changed before pausing:
+
+- Replaced the old `main-grid` wrapper with a `dashboard-shell` grid.
+- Tagged the major panels with explicit layout classes:
+  - `positions-panel`
+  - `trade-panel`
+  - `watchlist-panel`
+  - `wallet-activity-panel`
+  - `wallet-list-panel`
+  - `past-trades-panel`
+  - `copy-settings-panel`
+  - `auto-exit-panel`
+  - `candidate-attention-panel`
+- Kept the content unchanged; this is layout-only.
+- `npx tsc --noEmit` passes.
+- `npm run build` passes.
+
+What still needs work:
+
+- The layout still needs browser inspection and likely one more pass to make the lower section read correctly.
+- I could not get a reliable screenshot from the local browser tools in this session.
+
 ## Latest Session Notes
 
 Just shipped on local `main` (not pushed): background auto-copy worker (plan
