@@ -136,6 +136,7 @@ export async function buildQuotePreview(input: {
   tokenQuantity?: number;
   slippageBps: number;
   gasBufferBps: number;
+  nativeUsdPrice?: number;
 }): Promise<QuotePreview> {
   if (input.side === "buy" && (!input.usdAmount || input.usdAmount <= 0)) {
     throw new Error("Buy preview requires a USD amount.");
@@ -152,17 +153,18 @@ export async function buildQuotePreview(input: {
     input.side === "buy"
       ? toBaseUnits(input.usdAmount ?? 0, chainTokens.usdc.decimals)
       : toBaseUnits(input.tokenQuantity ?? 0, input.token.decimals);
-  const quote = await getBestSwapQuote({
-    chainId,
-    side: input.side,
-    sellToken,
-    buyToken,
-    sellAmount,
-    slippageBps: input.slippageBps
-  });
-
-  const ethUsd = await getNativeUsdPrice(chainId);
-  const spotTokenPriceUsd = await getReferenceTokenPriceUsd(input.token, chainId);
+  const [quote, ethUsd, spotTokenPriceUsd] = await Promise.all([
+    getBestSwapQuote({
+      chainId,
+      side: input.side,
+      sellToken,
+      buyToken,
+      sellAmount,
+      slippageBps: input.slippageBps
+    }),
+    input.nativeUsdPrice ? Promise.resolve(input.nativeUsdPrice) : getNativeUsdPrice(chainId),
+    getReferenceTokenPriceUsd(input.token, chainId)
+  ]);
   const gasEth = ((quote.gasUnits ?? 0) * (quote.gasPriceWei ?? 0)) / 1e18;
   const gasUsd = (quote.gasUsd ?? gasEth * ethUsd) * (1 + input.gasBufferBps / 10_000);
 

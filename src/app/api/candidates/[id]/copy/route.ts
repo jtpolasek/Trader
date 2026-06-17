@@ -45,7 +45,8 @@ export async function POST(_request: Request, context: { params: Promise<{ id: s
       usdAmount: sized.side === "buy" ? sized.usdAmount : undefined,
       tokenQuantity: sized.side === "sell" ? sized.tokenQuantity : undefined,
       slippageBps: settings.slippageCapBps,
-      gasBufferBps: settings.gasBufferBps
+      gasBufferBps: settings.gasBufferBps,
+      nativeUsdPrice: nativeUsd
     });
 
     const portfolio = getPortfolio();
@@ -74,7 +75,8 @@ export async function POST(_request: Request, context: { params: Promise<{ id: s
           chainId: candidate.chainId,
           usdAmount: cappedUsd,
           slippageBps: settings.slippageCapBps,
-          gasBufferBps: settings.gasBufferBps
+          gasBufferBps: settings.gasBufferBps,
+          nativeUsdPrice: nativeUsd
         });
 
         if (portfolio.cashUsd >= preview.totalCostUsd) break;
